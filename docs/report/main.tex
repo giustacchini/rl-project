@@ -1,0 +1,298 @@
+% Use a modern class instead of an old article class
+\documentclass{scrartcl}
+
+% The class "scrartcl" provides the “article”-like element of the koma-script collection. The document layout of the class is less 'strident' than that of article, and it offers much more flexibility than article via other elements of the koma-script collection.
+
+% Information about other document classes can be found herehttps://en.wikibooks.org/wiki/LaTeX/Document_Structure#Document_classes
+
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%% CUSTOM PACKAGES %%%%%%%%%%%%%%%%%%%%%%%%%%% %
+\usepackage[none]{hyphenat}
+% \usepackage{geometry}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{empheq}
+\usepackage{mdframed}
+\usepackage{lipsum}
+\usepackage{color}
+\usepackage{bm}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{subfigure}
+\usepackage[most]{tcolorbox}
+
+\usepackage[a4paper, left=2cm, right=2cm]{geometry}
+
+% Long table
+\usepackage{xltabular}
+
+%maths
+\usepackage{amsfonts}
+
+\usepackage[edges]{forest}
+\usepackage[T1]{fontenc}
+
+%tikzpicture
+\usepackage{tikz}
+\usepackage{scalerel}
+\usepackage{tkz-euclide}
+\usetikzlibrary{trees}
+\usetikzlibrary{calc}
+\usetikzlibrary{patterns,arrows.meta}
+\usetikzlibrary{shadows}
+\usetikzlibrary{external}
+\usepackage{tikz-cd}
+
+
+%pgfplots
+\usepackage{pgfplots}  % For plots and graphs
+\usepgfplotslibrary{statistics}
+\usepgfplotslibrary{fillbetween}
+
+% \usepackage{cellspace} % Adds extra space inside table cells
+% \setlength\cellspacetoplimit{12px}    % Top padding
+% \setlength\cellspacebottomlimit{12px} % Bottom padding
+
+\renewcommand{\arraystretch}{1.5} % Increase row height (default = 1.0)
+\usepackage{tabularx}
+% Define a new column type: vertically centered and flexible width
+\newcolumntype{M}[1]{>{\centering\arraybackslash}m{#1}}
+\newcolumntype{Y}{>{\centering\arraybackslash}X} % Like M but auto width
+% %%%%%%%%%%%%%%%%%%%%%%%%%%% CUSTOM PACKAGES %%%%%%%%%%%%%%%%%%%%%%%%%%% %
+% %%%%%%%%%%%%%%%%%%%%%%%%%%% CUSTOM COMMANDS %%%%%%%%%%%%%%%%%%%%%%%%%%% %
+% \usepackage{tocbasic}
+% \DeclareNewSectionCommand[
+%   level=4,
+%   indent=0pt,
+%   beforeskip=1.5ex plus .2ex minus .1ex,
+%   afterskip=.8ex plus .2ex,
+%   style=section,
+%   font=\normalfont\normalsize\bfseries
+% ]{subsubsubsection}
+
+% % TOC depth and numbering depth
+% \setcounter{tocdepth}{4}
+% \setcounter{secnumdepth}{4}
+
+% % Adjust indentation in TOC
+% \DeclareTOCStyleEntry[
+%   indent=1.5em,
+%   numwidth=3em
+% ]{tocline}{subsubsubsection}
+
+% Extend sectioning to level 4 (subsubsubsection)
+\makeatletter
+\newcounter{subsubsubsection}[subsubsection]
+\renewcommand\thesubsubsubsection{\thesubsubsection.\arabic{subsubsubsection}}
+
+\newcommand\subsubsubsection{\@startsection{subsubsubsection}{4}{\z@}%
+  {-3.25ex \@plus -1ex \@minus -.2ex}%
+  {1.5ex \@plus .2ex}%
+  {\normalfont\normalsize\bfseries}}
+
+\newcommand\l@subsubsubsection{\@dottedtocline{4}{5em}{4em}}
+\makeatother
+
+% Add subsubsubsection to TOC and numbering
+\setcounter{secnumdepth}{4}
+\setcounter{tocdepth}{4}
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%% CUSTOM COMMANDS %%%%%%%%%%%%%%%%%%%%%%%%%%% %
+% --------------------------- DEFAULT PACKAGES SETUP --------------------------- %
+\usepackage[utf8]{inputenc} % Specify the input encoding of the source file as UTF8 
+\usepackage[T1]{fontenc} % The T1 font encoding is an 8-bit encoding and fully supports words containing accented characters
+\usepackage{lmodern} % Load Latin modern fonts in outline format
+\usepackage{inconsolata} % Load better typewriter font
+\usepackage[english]{babel} % For better hyphenation patterns
+\usepackage{microtype} % For improved micro-typography
+\frenchspacing % Switch off extra space after a sentence
+\usepackage{graphicx} % To be able to iclude pictures
+\usepackage{mathtools,amsmath} % for advanced math formulas
+\usepackage{minted} % To highlight source code
+% Default options for all minted environments
+\setminted{
+    style=default, % for minted envronment
+    autogobble, % automatically remove all common leading whitespace
+    xleftmargin=10pt, % indentation to add (on the left) before the listing
+    numbersep=6pt, % gap between numbers and start of line
+    linenos, % enables line numbers
+    mathescape % enables the usual math mode inside comments
+}
+\setmintedinline[c]{style=default} % for minted inlines
+\usepackage{fancyvrb} % Flexible handling of verbatim text
+\usepackage{booktabs} % For well-spaced lines and guidelines in tables
+\usepackage{algorithm} % To typeset algorithms or pseudocode in LaTeX 
+\usepackage{algpseudocode}
+\pgfplotsset{width=10cm,compat=1.9}
+\renewcommand{\algorithmiccomment}[1]{\hspace{1cm}// #1}
+
+\usepackage{soul} % Change text highlighting
+\usepackage{pgffor} % Needed for for-loops
+
+% --------------------------- DEFAULT PACKAGES SETUP --------------------------- %
+% --------------------------- KOMA OPTIONS (DOCUMENT SETTINGS) ----------------------- %
+
+\KOMAoptions{
+    parskip=half,  % full, off
+    fontsize=12pt, % base font size (10pt default)
+    toc=sectionentrydotfill, % Fill toc with dots for sections
+    % headings=big,% small/normal/big headings (normal is default), 
+    % paper=a5,    % paper format (a4 default) 
+    pagesize=auto  % Use paper format for PDF too
+}
+
+% --------------------------- KOMA OPTIONS (DOCUMENT SETTINGS) ----------------------- %
+%%%%%%%%%%%%%%%%%%%%%%%%%% Define some useful colors %%%%%%%%%%%%%%%%%%%%%%%%%%
+\definecolor{ocre}{RGB}{243,102,25}
+\definecolor{mygray}{RGB}{243,243,244}
+\definecolor{deepGreen}{RGB}{26,111,0}
+\definecolor{shallowGreen}{RGB}{235,255,255}
+\definecolor{deepBlue}{RGB}{61,124,222}
+\definecolor{shallowBlue}{RGB}{235,249,255}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Define an orangebox command %%%%%%%%%%%%%%%%%%%%%%%%
+\newcommand\orangebox[1]{\fcolorbox{ocre}{mygray}{\hspace{1em}#1\hspace{1em}}}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%% English Environments %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newtheoremstyle{mytheoremstyle}{3pt}{3pt}{\normalfont}{0cm}{\rmfamily\bfseries}{}{1em}{{\color{black}\thmname{#1}~\thmnumber{#2}}\thmnote{\,--\,#3}}
+\newtheoremstyle{myproblemstyle}{3pt}{3pt}{\normalfont}{0cm}{\rmfamily\bfseries}{}{1em}{{\color{black}\thmname{#1}~\thmnumber{#2}}\thmnote{\,--\,#3}}
+\theoremstyle{mytheoremstyle}
+\newmdtheoremenv[linewidth=1pt,backgroundcolor=shallowGreen,linecolor=deepGreen,leftmargin=0pt,innerleftmargin=20pt,innerrightmargin=20pt,]{theorem}{Theorem}[section]
+\theoremstyle{mytheoremstyle}
+\newmdtheoremenv[linewidth=1pt,backgroundcolor=shallowBlue,linecolor=deepBlue,leftmargin=0pt,innerleftmargin=20pt,innerrightmargin=20pt,]{definition}{Definition}[section]
+\theoremstyle{myproblemstyle}
+\newmdtheoremenv[linecolor=black,leftmargin=0pt,innerleftmargin=10pt,innerrightmargin=10pt,]{problem}{Problem}[section]
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Plotting Settings %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\usepgfplotslibrary{colorbrewer}
+\pgfplotsset{width=8cm,compat=1.9}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% REPORT DETAILS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%% %
+
+\newcommand{\courseyear}{2026}
+\newcommand{\coursename}{TFSS25 - Reinforcement Learning}
+\newcommand{\coursecredits}{7.5 credits}
+\newcommand{\fullcoursename}{\coursename, \coursecredits}
+\newcommand{\termname}{Autumn\courseyear}
+% \newcommand{\groupnumber}{10} % Optional
+\newcommand{\reportname}{Reinforcement Learning Project Report}
+\newcommand{\assignmentname}{Reinforcement Learning}
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% REPORT DETAILS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% %
+% -------------------------- SETTING UP PROPERTIES OF PDF FILE ----------------------- %
+
+\usepackage{hyperref}
+\usepackage[all]{hypcap}
+\hypersetup{
+    colorlinks=true,
+    allcolors=blue,
+    pdftitle={\reportname},
+    pdfauthor={Martin Nilsson},
+    pdfsubject={\coursename, \termname}
+	% pdfpagemode=FullScreen,
+	% pdfpagemode= UseOutlines % the default if present
+}
+
+% ---------------------------- SETTING UP PROPERTIES OF PDF FILE ------------------------ %
+% ----------------------------- HEADER AND FOOTER SETTINGS ------------------------------ %
+
+\usepackage{scrlayer-scrpage}
+\usepackage{zref-totpages} % To get the total number of pages
+\pagestyle{scrheadings}
+\KOMAoptions{% 
+    headsepline,% line below the header
+    plainheadsepline,% also on scrplain
+}
+\clearscrheadfoot % Erase all current configurations
+% inner part of the header [titel_page]{other_pages}
+\ihead[\coursename, \courseyear]{\coursename, \courseyear}
+% outer part of the header [titel_page]{other_pages}
+\ohead{\assignmentname}
+% center part of the footer [titel_page]{other_pages}
+\cfoot[\textup{Page \pagemark\ of \ztotpages}]{\textup{Page \pagemark\ of \ztotpages}}
+
+% ----------------------------- HEADER AND FOOTER SETTINGS ------------------------------ %
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% TITLE PAGE CONFIG %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% %
+
+\title{\reportname}
+\subtitle{Snow plow problem with multi-agent reinforcement learning}
+\author{
+    \textbf{Authors:} \\
+    \textbf{Martin Nilsson}, \textit{School of Engineering}, Jönköping University
+    \and
+    \textbf{Besan Ewir}, \textit{School of Engineering}, Jönköping University
+    \and
+    \textbf{Vladimir Giustacchini}, \textit{School of Engineering}, Jönköping University
+    \and
+    \textbf{Jorge Cuello}, \textit{School of Engineering}, Jönköping University
+}
+\date{\today}
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% TITLE PAGE CONFIG %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% %
+
+
+\begin{document} % <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+\raggedright
+
+\maketitle
+
+\tableofcontents
+
+\newpage
+
+\section{Problem Description: Snow Plow Problem}
+
+We consider a snow plow problem where a fleet of snow plows is tasked with clearing snow from a network of roads in a city. The objective is to minimize the total time taken to clear all roads while ensuring that the snow plows operate efficiently and avoid collisions. Each snow plow can be controlled by an agent that makes decisions based on the current state of the environment, including the location of other snow plows, the amount of snow on each road, and the traffic conditions.
+
+\section{Environment}
+
+A grid represents the city, where each cell corresponds to a road segment. The state of the environment includes the positions of all snow plows, the amount of snow on each road segment, and any obstacles or traffic conditions that may affect the movement of the snow plows.
+
+As an initial environment size we consider a grid of size $15 \times 15$ with a maximum of 2 snow plows. The snow plows can move in four directions (up, down, left, right) and can also choose to stay in their current position. The environment is dynamic, with snow accumulating on the roads over time, and the agents must adapt their strategies accordingly.
+
+\subsection{Observations}
+
+\subsubsection{Experiment 1: 1-Agent + Full Observation}
+
+\subsubsection{Experiment 2: 1-Agent + Partial Observation}
+PO-range: $(3 \times 3)$ or $(5 \times 5)$
+
+\subsubsection{Experiment 3: 2-Agents + Full Observation}
+
+\subsubsection{Experiment 4: 2-Agents + Partial Observation}
+PO-range: $(3 \times 3)$ or $(5 \times 5)$
+
+\subsection{Actions}
+
+\begin{enumerate}
+    \item $\rightarrow$: Move Right
+    \item $\leftarrow$: Move Left
+    \item $\uparrow$: Move Up
+    \item $\downarrow$: Move Down
+    \item Do nothing: Stay in the current position
+\end{enumerate}
+
+
+
+\subsection{Truncation Dynamics}
+
+Episode ends if the city streets are cleared or if a maximum number of time steps is reached. The truncation dynamics ensure that the agents learn to optimize their actions within a limited time frame, promoting efficient snow clearing strategies.
+
+\begin{itemize}
+    \item After 1000 time steps, the episode ends.
+    \item If all roads are cleared before 1000 time steps, the episode ends early.
+\end{itemize}
+
+
+\section{Theoretical Part}
+
+
+% =========== REFERENCES =========== 
+
+\bibliographystyle{ieeetr}
+\bibliography{rl}
+
+\end{document}
