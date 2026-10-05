@@ -16,7 +16,8 @@ class FullObservationProvider(ObservationProvider):
         observations = {}
 
         active_agents = [
-            agent for agent in env.agents
+            agent
+            for agent in env.agents
             if not agent.state.terminated
         ]
 
@@ -28,7 +29,7 @@ class FullObservationProvider(ObservationProvider):
         for agent in active_agents:
             observations[agent.index] = {
                 "grid": env.grid.state.copy(),
-                "agent_positions": agent_positions,
+                "agent_positions": agent_positions.copy(),
                 "self_position": tuple(agent.state.pos),
             }
 
