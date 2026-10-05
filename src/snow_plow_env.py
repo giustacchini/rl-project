@@ -3,16 +3,23 @@
 
 import enum
 from collections import defaultdict
-from mosaic_multigrid.base import MultiGridEnv, AgentID
 
-class SnowPlowAction(enum.IntEnum):
-    do_nothing = 0
-    up = enum.auto()
-    down = enum.auto()
-    right = enum.auto()
-    left = enum.auto()
+from mosaic_multigrid.base import AgentID, MultiGridEnv
+
+
+class SnowPlowActions(enum.Enum):
+    DO_NOTHING = (0, 0)
+    UP = (0, -1)
+    DOWN = (0, 1)
+    RIGHT = (1, 0)
+    LEFT = (-1, 0)
+
 
 class SnowPlowEnv(MultiGridEnv):
+
+    def __init__(self, width: int, height: int, num_agents: int):
+        super().__init__(width, height, num_agents)
+
     def handle_actions(self, actions):
         movement_intentions = self.build_movement_intentions(actions)
         validated_moves = self.validate_proposed_moves(movement_intentions)
@@ -24,32 +31,23 @@ class SnowPlowEnv(MultiGridEnv):
         rewards = {agent.index: 0 for agent in self.agents}
         return rewards
 
-    def build_movement_intentions(self, actions: dict[AgentID, SnowPlowAction]):
+    def build_movement_intentions(self, actions: dict[AgentID, SnowPlowActions]):
         movement_intentions = {}
-        movement_dict = {
-            SnowPlowAction.do_nothing: (0, 0),
-            SnowPlowAction.up: (0, -1),
-            SnowPlowAction.down: (0, 1),
-            SnowPlowAction.right: (1, 0),
-            SnowPlowAction.left: (-1, 0)
-        }
         for agent in self.agents:
             raw_action = actions[agent.index]
-            movement_intentions[agent.index] = {
-                "raw_action": raw_action,
-                "current_position": agent.state.pos.copy()
-            }
+            movement_intentions[agent.index] = {"raw_action": raw_action, "current_position": agent.state.pos.copy()}
 
+            # General approach to handle invalid actions, including non-integer values and out-of-range integers
             try:
-                movement_intentions[agent.index]["chosen_action"] = SnowPlowAction(raw_action)
+                movement_intentions[agent.index]["chosen_action"] = SnowPlowActions(raw_action)
                 movement_intentions[agent.index]["action_valid"] = True
             except (ValueError, TypeError):
-                movement_intentions[agent.index]["chosen_action"] = SnowPlowAction.do_nothing
+                movement_intentions[agent.index]["chosen_action"] = SnowPlowActions.DO_NOTHING
                 movement_intentions[agent.index]["action_valid"] = False
 
             chosen_action = movement_intentions[agent.index]["chosen_action"]
             movement_intentions[agent.index]["intended_position"] = (
-                movement_intentions[agent.index]["current_position"] + movement_dict[chosen_action]
+                movement_intentions[agent.index]["current_position"] + SnowPlowActions(chosen_action).value
             )
 
         return movement_intentions
@@ -58,16 +56,19 @@ class SnowPlowEnv(MultiGridEnv):
         validated_moves = {agent_id: record.copy() for agent_id, record in movement_intentions.items()}
         for agent in self.agents:
             validated_moves[agent.index]["status"] = "valid"
-            if validated_moves[agent.index]["action_valid"] is False or validated_moves[agent.index]["intended_position"][0] < 0 or validated_moves[agent.index]["intended_position"][0] >= self.width or validated_moves[agent.index]["intended_position"][1] < 0 or validated_moves[agent.index]["intended_position"][1] >= self.height:
+            if (
+                validated_moves[agent.index]["action_valid"] is False
+                or validated_moves[agent.index]["intended_position"][0] < 0  # Trying to move out of bounds (LEFT)
+                or validated_moves[agent.index]["intended_position"][0] >= self.width  # Trying to move out of bounds (RIGHT)
+                or validated_moves[agent.index]["intended_position"][1] < 0  # Trying to move out of bounds (UP)
+                or validated_moves[agent.index]["intended_position"][1] >= self.height  # Trying to move out of bounds (DOWN)
+            ):
                 validated_moves[agent.index]["status"] = "blocked_invalid_action"
                 validated_moves[agent.index]["intended_position"] = validated_moves[agent.index]["current_position"]
         return validated_moves
 
     def resolve_simultaneous_conflicts(self, validated_moves):
-        moves_after_conflicts = {
-            agent_id: record.copy()
-            for agent_id, record in validated_moves.items()
-        }
+        moves_after_conflicts = {agent_id: record.copy() for agent_id, record in validated_moves.items()}
 
         pos_list = defaultdict(list)
         pos_map = {}
@@ -84,8 +85,7 @@ class SnowPlowEnv(MultiGridEnv):
             moving_agent_ids = [
                 agent_id
                 for agent_id in agent_ids
-                if tuple(moves_after_conflicts[agent_id]["intended_position"])
-                != tuple(moves_after_conflicts[agent_id]["current_position"])
+                if tuple(moves_after_conflicts[agent_id]["intended_position"]) != tuple(moves_after_conflicts[agent_id]["current_position"])
             ]
 
             if len(moving_agent_ids) > 1:
