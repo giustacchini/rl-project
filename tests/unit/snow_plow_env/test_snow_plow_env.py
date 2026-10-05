@@ -1,13 +1,10 @@
-
-    
-  
 # test_snow_plow_env.py
 
 from types import SimpleNamespace
 
 import numpy as np
 
-from snow_plow_env import SnowPlowAction, SnowPlowEnv
+from snow_plow_env import SnowPlowActions, SnowPlowEnv
 
 
 class TestSnowPlowEnv(SnowPlowEnv):
@@ -24,14 +21,13 @@ def make_env(positions, width=8, height=8):
     env.agents = [
         SimpleNamespace(
             index=agent_id,
-            state=SimpleNamespace(
-                pos=np.array(position, dtype=int)
-            ),
+            state=SimpleNamespace(pos=np.array(position, dtype=int)),
         )
         for agent_id, position in enumerate(positions)
     ]
 
     return env
+
 
 def position(env, agent_id):
     return tuple(env.agents[agent_id].state.pos)
@@ -44,9 +40,11 @@ def status(env, agent_id):
 def test_single_agent_moves_into_empty_cell():
     env = make_env([(1, 1)])
 
-    rewards = env.handle_actions({
-        0: SnowPlowAction.right,
-    })
+    rewards = env.handle_actions(
+        {
+            0: SnowPlowActions.RIGHT,
+        }
+    )
 
     assert position(env, 0) == (2, 1)
     assert status(env, 0) == "moved"
@@ -56,9 +54,11 @@ def test_single_agent_moves_into_empty_cell():
 def test_single_agent_do_nothing():
     env = make_env([(1, 1)])
 
-    rewards = env.handle_actions({
-        0: SnowPlowAction.do_nothing,
-    })
+    rewards = env.handle_actions(
+        {
+            0: SnowPlowActions.DO_NOTHING,
+        }
+    )
 
     assert position(env, 0) == (1, 1)
     assert status(env, 0) == "waited"
@@ -66,15 +66,19 @@ def test_single_agent_do_nothing():
 
 
 def test_two_agents_request_same_empty_cell():
-    env = make_env([
-        (1, 1),
-        (2, 2),
-    ])
+    env = make_env(
+        [
+            (1, 1),
+            (2, 2),
+        ]
+    )
 
-    env.handle_actions({
-        0: SnowPlowAction.right,
-        1: SnowPlowAction.up,
-    })
+    env.handle_actions(
+        {
+            0: SnowPlowActions.RIGHT,
+            1: SnowPlowActions.UP,
+        }
+    )
 
     assert position(env, 0) == (1, 1)
     assert position(env, 1) == (2, 2)
@@ -83,15 +87,19 @@ def test_two_agents_request_same_empty_cell():
 
 
 def test_two_agents_cannot_swap_cells():
-    env = make_env([
-        (1, 1),
-        (2, 1),
-    ])
+    env = make_env(
+        [
+            (1, 1),
+            (2, 1),
+        ]
+    )
 
-    env.handle_actions({
-        0: SnowPlowAction.right,
-        1: SnowPlowAction.left,
-    })
+    env.handle_actions(
+        {
+            0: SnowPlowActions.RIGHT,
+            1: SnowPlowActions.LEFT,
+        }
+    )
 
     assert position(env, 0) == (1, 1)
     assert position(env, 1) == (2, 1)
@@ -100,8 +108,9 @@ def test_two_agents_cannot_swap_cells():
 
 
 def test_agent_cannot_enter_cell_of_stationary_agent():
-    env = make_env([
-        (1, 1),
-        (2, 1),
-    ])
-
+    env = make_env(
+        [
+            (1, 1),
+            (2, 1),
+        ]
+    )
