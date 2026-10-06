@@ -12,8 +12,9 @@ tuple for a single agent, so `.copy()` only fails against the real lib.
 import numpy as np
 import pytest
 
-from snow_plow_env import SnowPlowEnv, SnowPlowAction
+from Enums import SnowPlowActions
 from shared.rendering import ascii_grid
+from snow_plow_env import SnowPlowEnv
 
 
 def make_env(num_agents=1, width=8, height=8, max_steps=50, seed=1):
@@ -34,6 +35,7 @@ def status_of(env, agent_id):
 # ---------------------------------------------------------------------
 # Reset / seeding (issue #5: "tests for reset and seeding")
 # ---------------------------------------------------------------------
+
 
 def test_reset_returns_valid_agent_positions():
     env = make_env(num_agents=3)
@@ -70,10 +72,11 @@ def test_different_seed_usually_differs():
 # out-of-bounds tests)
 # ---------------------------------------------------------------------
 
+
 def test_same_destination_conflict_blocks_both():
     env = make_env(num_agents=2)
     set_positions(env, [(1, 1), (2, 2)])
-    env.handle_actions({0: SnowPlowAction.right, 1: SnowPlowAction.up})
+    env.handle_actions({0: SnowPlowActions.RIGHT, 1: SnowPlowActions.UP})
     assert status_of(env, 0) == "blocked_same_destination"
     assert status_of(env, 1) == "blocked_same_destination"
 
@@ -81,7 +84,7 @@ def test_same_destination_conflict_blocks_both():
 def test_swap_conflict_blocks_both():
     env = make_env(num_agents=2)
     set_positions(env, [(1, 1), (2, 1)])
-    env.handle_actions({0: SnowPlowAction.right, 1: SnowPlowAction.left})
+    env.handle_actions({0: SnowPlowActions.RIGHT, 1: SnowPlowActions.LEFT})
     assert status_of(env, 0) == "blocked_swap"
     assert status_of(env, 1) == "blocked_swap"
 
@@ -89,7 +92,7 @@ def test_swap_conflict_blocks_both():
 def test_move_into_border_wall_is_blocked():
     env = make_env(num_agents=1, width=8, height=8)
     set_positions(env, [(1, 0)])  # row 0 sits just inside the border wall
-    env.handle_actions({0: SnowPlowAction.up})  # would move onto y=-1 -> wall row
+    env.handle_actions({0: SnowPlowActions.UP})  # would move onto y=-1 -> wall row
     assert status_of(env, 0) == "blocked_invalid_action"
     assert tuple(env.agents[0].state.pos) == (1, 0)
 
@@ -97,7 +100,7 @@ def test_move_into_border_wall_is_blocked():
 def test_move_into_wall_cell_is_blocked():
     env = make_env(num_agents=1, width=8, height=8)
     set_positions(env, [(1, 1)])
-    env.handle_actions({0: SnowPlowAction.left})  # (0,1) is still inside border wall
+    env.handle_actions({0: SnowPlowActions.LEFT})  # (0,1) is still inside border wall
     assert status_of(env, 0) == "blocked_invalid_action"
     assert tuple(env.agents[0].state.pos) == (1, 1)
 
@@ -105,6 +108,7 @@ def test_move_into_wall_cell_is_blocked():
 # ---------------------------------------------------------------------
 # Rendering (issue #5: "two generic agents can be visualized moving")
 # ---------------------------------------------------------------------
+
 
 def test_ascii_render_shows_every_agent():
     env = make_env(num_agents=2, width=6, height=6)
@@ -126,14 +130,12 @@ def test_rgb_frame_renders_without_crashing():
 # repeatedly without crashing")
 # ---------------------------------------------------------------------
 
+
 def test_many_random_episodes_do_not_crash():
     env = SnowPlowEnv(agents=2, width=8, height=8, max_steps=20)
     rng = np.random.default_rng(0)
     for episode in range(20):
         env.reset(seed=episode)
         for _ in range(20):
-            actions = {
-                agent.index: int(rng.integers(0, len(SnowPlowAction)))
-                for agent in env.agents
-            }
+            actions = {agent.index: list(SnowPlowActions)[rng.integers(0, len(SnowPlowActions))] for agent in env.agents}
             env.handle_actions(actions)
