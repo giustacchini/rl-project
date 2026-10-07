@@ -7,3 +7,10 @@ class MovementActions(enum.Enum):
     DOWN = (0, 1)
     RIGHT = (1, 0)
     LEFT = (-1, 0)
+
+
+class GridCellTypes(enum.Enum):
+    OBSTACLE = 0
+    ROAD = 1
+    INTERSECTION = 2
+    HIGHWAY = 3
