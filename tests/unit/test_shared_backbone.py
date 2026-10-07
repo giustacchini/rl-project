@@ -12,7 +12,7 @@ tuple for a single agent, so `.copy()` only fails against the real lib.
 import numpy as np
 import pytest
 
-from Enums import SnowPlowActions
+from Enums import MovementActions
 from shared.rendering import ascii_grid
 from snow_plow_env import SnowPlowEnv
 
@@ -76,7 +76,7 @@ def test_different_seed_usually_differs():
 def test_same_destination_conflict_blocks_both():
     env = make_env(num_agents=2)
     set_positions(env, [(1, 1), (2, 2)])
-    env.handle_actions({0: SnowPlowActions.RIGHT, 1: SnowPlowActions.UP})
+    env.handle_actions({0: MovementActions.RIGHT, 1: MovementActions.UP})
     assert status_of(env, 0) == "blocked_same_destination"
     assert status_of(env, 1) == "blocked_same_destination"
 
@@ -84,7 +84,7 @@ def test_same_destination_conflict_blocks_both():
 def test_swap_conflict_blocks_both():
     env = make_env(num_agents=2)
     set_positions(env, [(1, 1), (2, 1)])
-    env.handle_actions({0: SnowPlowActions.RIGHT, 1: SnowPlowActions.LEFT})
+    env.handle_actions({0: MovementActions.RIGHT, 1: MovementActions.LEFT})
     assert status_of(env, 0) == "blocked_swap"
     assert status_of(env, 1) == "blocked_swap"
 
@@ -92,7 +92,7 @@ def test_swap_conflict_blocks_both():
 def test_move_into_border_wall_is_blocked():
     env = make_env(num_agents=1, width=8, height=8)
     set_positions(env, [(1, 0)])  # row 0 sits just inside the border wall
-    env.handle_actions({0: SnowPlowActions.UP})  # would move onto y=-1 -> wall row
+    env.handle_actions({0: MovementActions.UP})  # would move onto y=-1 -> wall row
     assert status_of(env, 0) == "blocked_invalid_action"
     assert tuple(env.agents[0].state.pos) == (1, 0)
 
@@ -100,7 +100,7 @@ def test_move_into_border_wall_is_blocked():
 def test_move_into_wall_cell_is_blocked():
     env = make_env(num_agents=1, width=8, height=8)
     set_positions(env, [(1, 1)])
-    env.handle_actions({0: SnowPlowActions.LEFT})  # (0,1) is still inside border wall
+    env.handle_actions({0: MovementActions.LEFT})  # (0,1) is still inside border wall
     assert status_of(env, 0) == "blocked_invalid_action"
     assert tuple(env.agents[0].state.pos) == (1, 1)
 
@@ -137,5 +137,5 @@ def test_many_random_episodes_do_not_crash():
     for episode in range(20):
         env.reset(seed=episode)
         for _ in range(20):
-            actions = {agent.index: list(SnowPlowActions)[rng.integers(0, len(SnowPlowActions))] for agent in env.agents}
+            actions = {agent.index: list(MovementActions)[rng.integers(0, len(MovementActions))] for agent in env.agents}
             env.handle_actions(actions)
