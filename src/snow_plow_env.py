@@ -4,7 +4,7 @@
 from mosaic_multigrid.base import AgentID, MultiGridEnv
 from mosaic_multigrid.core.grid import Grid
 
-from Enums import SnowPlowActions
+from Enums import MovementActions
 from shared.entities import Obstacle
 from shared.movement import handle_simultaneous_movement
 
@@ -37,7 +37,7 @@ class SnowPlowEnv(MultiGridEnv):
         """
         return True
 
-    def handle_actions(self, actions: dict[AgentID, SnowPlowActions]):
+    def handle_actions(self, actions: dict[AgentID, MovementActions]):
         movement_results = handle_simultaneous_movement(
             agents=self.agents,
             grid=self.grid,

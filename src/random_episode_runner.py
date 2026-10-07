@@ -11,7 +11,7 @@ import argparse
 
 import numpy as np
 
-from Enums import SnowPlowActions
+from Enums import MovementActions
 from shared.rendering import print_grid
 from snow_plow_env import SnowPlowEnv
 
@@ -33,7 +33,7 @@ def run(num_episodes: int, num_agents: int, width: int, height: int, max_steps: 
         env.reset(seed=int(rng.integers(0, 2**31 - 1)))
 
         for step in range(max_steps):
-            actions = {agent.index: list(SnowPlowActions)[rng.integers(0, len(SnowPlowActions))] for agent in env.agents}
+            actions = {agent.index: list(MovementActions)[rng.integers(0, len(MovementActions))] for agent in env.agents}
             print(actions)
             env.handle_actions(actions)
 

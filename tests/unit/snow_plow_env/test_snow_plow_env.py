@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from Enums import SnowPlowActions
+from Enums import MovementActions
 from snow_plow_env import SnowPlowEnv
 
 
@@ -40,7 +40,7 @@ def test_single_agent_moves_into_empty_cell():
 
     rewards = env.handle_actions(
         {
-            0: SnowPlowActions.RIGHT,
+            0: MovementActions.RIGHT,
         }
     )
 
@@ -54,7 +54,7 @@ def test_single_agent_do_nothing():
 
     rewards = env.handle_actions(
         {
-            0: SnowPlowActions.DO_NOTHING,
+            0: MovementActions.DO_NOTHING,
         }
     )
 
@@ -73,8 +73,8 @@ def test_two_agents_request_same_empty_cell():
 
     env.handle_actions(
         {
-            0: SnowPlowActions.RIGHT,
-            1: SnowPlowActions.UP,
+            0: MovementActions.RIGHT,
+            1: MovementActions.UP,
         }
     )
 
@@ -94,8 +94,8 @@ def test_two_agents_cannot_swap_cells():
 
     env.handle_actions(
         {
-            0: SnowPlowActions.RIGHT,
-            1: SnowPlowActions.LEFT,
+            0: MovementActions.RIGHT,
+            1: MovementActions.LEFT,
         }
     )
 

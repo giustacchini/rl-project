@@ -17,14 +17,14 @@ from typing import Callable, Optional
 import numpy as np
 from mosaic_multigrid.base import AgentID
 
-from Enums import SnowPlowActions
+from Enums import MovementActions
 from shared.grid import in_bounds, is_statically_blocked
 
 # Type alias: (grid, agent, current_pos, intended_pos) -> bool
 MoveAllowedFn = Callable[[object, object, tuple, tuple], bool]
 
 
-def build_movement_intentions(agents, actions: dict[AgentID, SnowPlowActions]) -> dict:
+def build_movement_intentions(agents, actions: dict[AgentID, MovementActions]) -> dict:
     """
     Convert each agent's raw action into a movement record. No live
     agent state is modified here.
@@ -36,17 +36,17 @@ def build_movement_intentions(agents, actions: dict[AgentID, SnowPlowActions]) -
     """
     movement_intentions = {}
     for agent in agents:
-        raw_action: SnowPlowActions = actions[agent.index]
+        raw_action: MovementActions = actions[agent.index]
         # agent.state.pos returns a plain tuple for a single agent's
         # AgentState slice (not an ndarray), so wrap it before .copy()/
         # arithmetic rather than relying on a numpy-only API.
         current_position = np.array(agent.state.pos, dtype=int)
 
-        if raw_action.name in SnowPlowActions.__members__:
+        if raw_action.name in MovementActions.__members__:
             chosen_action = raw_action
             action_valid = True
         else:
-            chosen_action = SnowPlowActions.DO_NOTHING
+            chosen_action = MovementActions.DO_NOTHING
             action_valid = False
 
         movement_intentions[agent.index] = {
@@ -54,7 +54,7 @@ def build_movement_intentions(agents, actions: dict[AgentID, SnowPlowActions]) -
             "chosen_action": chosen_action,
             "action_valid": action_valid,
             "current_position": current_position,
-            "intended_position": current_position + SnowPlowActions(chosen_action).value,
+            "intended_position": current_position + MovementActions(chosen_action).value,
         }
     return movement_intentions
 
@@ -192,7 +192,7 @@ def commit_resolved_positions(agents_by_id: dict, moves_after_conflicts: dict) -
 def handle_simultaneous_movement(
     agents,
     grid,
-    actions: dict[AgentID, SnowPlowActions],
+    actions: dict[AgentID, MovementActions],
     width: int,
     height: int,
     is_move_allowed: Optional[MoveAllowedFn] = None,
