@@ -1,4 +1,4 @@
-from shared.events import Event, EventType
+from shared.events import Event, EventType, EventLog
 
 
 def test_event_stores_given_values():
@@ -42,3 +42,25 @@ def test_each_event_has_its_own_data():
     first_event.data["position"] = (2, 3)
 
     assert second_event.data == {}
+
+def test_emit_stores_fields():
+    log = EventLog()
+    log.emit(EventType.INVALID_MOVE, agent_id=0, team_id=1, step=5, reason="out_of_bounds")
+    e = log.events()[0]
+    assert e.type == EventType.INVALID_MOVE
+    assert e.agent_id == 0
+    assert e.team_id == 1
+    assert e.step == 5
+    assert e.data == {"reason": "out_of_bounds"}
+
+def test_clear_empties_log():
+    log = EventLog()
+    log.emit(EventType.MOVED, agent_id=0)
+    log.clear()
+    assert log.events() == []
+
+def test_events_returns_copy():
+    log = EventLog()
+    log.emit(EventType.MOVED, agent_id=0)
+    log.events().clear()
+    assert len(log.events()) == 1
