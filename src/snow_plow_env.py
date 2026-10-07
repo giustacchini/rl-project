@@ -16,8 +16,8 @@ class SnowPlowEnv(MultiGridEnv):
     passes the shared grid/bounds checks
     """
 
-    def __init__(self, agents, width, height, max_steps):
-        super().__init__(agents=agents, width=width, height=height, max_steps=max_steps)
+    def __init__(self, agents, width, height, max_steps, render_mode=None):
+        super().__init__(agents=agents, width=width, height=height, max_steps=max_steps, render_mode=render_mode)
         self._gen_grid(width, height)
 
     def _gen_grid(self, width: int, height: int):
