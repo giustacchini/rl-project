@@ -8,13 +8,13 @@ from Enums import MovementActions
 from snow_plow_env import SnowPlowEnv
 
 
-class TestSnowPlowEnv(SnowPlowEnv):
+class StubSnowPlowEnv(SnowPlowEnv):
     def __init__(self, agents, width, height, max_steps):
         super().__init__(agents=agents, width=width, height=height, max_steps=max_steps)
 
 
 def make_env(positions, width=8, height=8):
-    env = TestSnowPlowEnv(agents=[], width=width, height=height, max_steps=100)
+    env = StubSnowPlowEnv(agents=[], width=width, height=height, max_steps=100)
 
     env.agents = [
         SimpleNamespace(
