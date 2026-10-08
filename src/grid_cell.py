@@ -1,11 +1,18 @@
+<<<<<<< HEAD
 from __future__ import annotations
 
 import numpy as np
+=======
+>>>>>>> 0b6c6e5 (evol(visualization): applied modifications in order to see the environment in human render mode)
 from mosaic_multigrid.core import Color
 from mosaic_multigrid.core.world_object import WorldObj
 from mosaic_multigrid.utils.rendering import fill_coords, point_in_rect
 
+<<<<<<< HEAD
 from Enums import GridCellTypes, MovementActions
+=======
+from Enums import GridCellTypes
+>>>>>>> 0b6c6e5 (evol(visualization): applied modifications in order to see the environment in human render mode)
 
 
 class GridCell(WorldObj):
@@ -13,6 +20,7 @@ class GridCell(WorldObj):
 
     def __new__(
         cls,
+<<<<<<< HEAD
         row: int,
         column: int,
         cell_type: GridCellTypes = GridCellTypes.ROAD,
@@ -27,6 +35,18 @@ class GridCell(WorldObj):
         cell.snow_level = 0
         cell.cell_type = cell_type
         cell.pos = np.array((row, column))
+=======
+        color: Color = Color.blue,
+        cell_type: GridCellTypes = GridCellTypes.ROAD,
+        snow_level: int = 1,
+    ):
+        cell = super().__new__(cls, color=color)
+        cell.cell_type = cell_type
+        if cell.cell_type == GridCellTypes.OBSTACLE:
+            cell.color = Color.green
+        else:
+            cell.color = Color.grey
+>>>>>>> 0b6c6e5 (evol(visualization): applied modifications in order to see the environment in human render mode)
         return cell
 
     def can_overlap(self) -> bool:
@@ -34,6 +54,7 @@ class GridCell(WorldObj):
 
     def render(self, img):
         fill_coords(img, point_in_rect(0.031, 1, 0.031, 1), self.color.rgb())
+<<<<<<< HEAD
 
     def set_snow_level(self, snow_level: int):
         if not isinstance(snow_level, int) or snow_level < 0:
@@ -54,3 +75,5 @@ class GridCell(WorldObj):
 
     def set_movement_action(self, movement_actions: list[MovementActions] | None = None):
         self.movement_actions = movement_actions
+=======
+>>>>>>> 0b6c6e5 (evol(visualization): applied modifications in order to see the environment in human render mode)
