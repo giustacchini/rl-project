@@ -27,13 +27,12 @@ def make_env():
         ),
     ]
 
-    grid = SimpleNamespace(
-        state=np.zeros((5, 5, 3))
-    )
+    grid = SimpleNamespace(state=np.zeros((5, 5, 3)))
 
     return SimpleNamespace(
         agents=agents,
         grid=grid,
+        get_observable_grid=lambda: grid.state.copy(),
     )
 
 
@@ -73,3 +72,12 @@ def test_local_observation_view_size_validation():
 
     with pytest.raises(ValueError):
         LocalObservationProvider(4)
+
+
+def test_observation_grid_is_a_copy():
+    env = make_env()
+    obs = FullObservationProvider().get_observations(env)
+
+    obs[0]["grid"][0, 0, 0] = 99
+
+    assert env.grid.state[0, 0, 0] == 0
