@@ -1,5 +1,6 @@
 """Snow-plow environment with a configured traffic grid and shared movement."""
 
+from __future__ import annotations
 import math
 from typing import Callable
 
@@ -12,7 +13,6 @@ from Enums import GridCellTypes, MovementActions
 from grid_cell import GridCell
 from shared.grid import in_bounds, is_statically_blocked
 from shared.movement import handle_simultaneous_movement
-
 
 class SnowPlowEnv(MultiGridEnv):
     """Build traffic terrain and resolve simultaneous agent movement."""
@@ -48,13 +48,6 @@ class SnowPlowEnv(MultiGridEnv):
                 self.place_agent(agent)
             return
 
-        # cell_types = {
-        #     "roads": GridCellTypes.ROAD,
-        #     "highways": GridCellTypes.HIGHWAY,
-        #     "intersections": GridCellTypes.INTERSECTION,
-        #     "obstacles": GridCellTypes.OBSTACLE,
-        # }
-        # for category, cell_type in cell_types.items():
         for category, cell_type in {grid_type.value: grid_type for grid_type in GridCellTypes}.items():
             print(category, cell_type)
             for rectangle in self.road_network[category]:
@@ -67,8 +60,7 @@ class SnowPlowEnv(MultiGridEnv):
                         self.grid.set(x, y, grid_cell)
                         print(grid_cell.color)
 
-        # self.generate_actions_from_traffic_rules()
-        # for category, cell_type in {grid_type.value: grid_type for grid_type in GridCellTypes}.items():
+        self.generate_actions_from_traffic_rules()
 
         for agent in self.agents:
             self.place_agent(agent)
@@ -201,7 +193,7 @@ class SnowPlowEnv(MultiGridEnv):
             right_allowed = in_bounds(self.width, self.height, right)
             left_allowed = in_bounds(self.width, self.height, left)
             down_allowed = in_bounds(self.width, self.height, down)
-
+            print(up)
             above_cell = self.grid.get(*up)  # Unpack tuple
             right_cell = self.grid.get(*right)
             left_cell = self.grid.get(*left)

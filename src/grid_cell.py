@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 from mosaic_multigrid.core import Color
 from mosaic_multigrid.core.world_object import WorldObj
@@ -14,38 +16,22 @@ class GridCell(WorldObj):
         row: int,
         column: int,
         cell_type: GridCellTypes = GridCellTypes.ROAD,
-        movement_actions: list[MovementActions] = [MovementActions.DO_NOTHING],
+        movement_actions: list[MovementActions] | None = None,
         color: Color = Color.blue,
     ):
-
-        # Specifically for GridCell, we want to store the cell_type and snow_level as attributes, so we override __init__.
-        # def __init__(
-        #     self,
-        #     row: int,
-        #     column: int,
-        #     cell_type: GridCellTypes = GridCellTypes.ROAD,
-        #     movement_actions: list[MovementActions] = [MovementActions.DO_NOTHING],
-        #     snow_level: int = 1,
-        # ):
-        cls.row = row
-        cls.column = column
-        cls.movement_actions = movement_actions
-        # super().__init__((row, column))
-        cls.cell_type = cell_type
-        cls.pos = np.array((row, column))
-
         new_color = color
-        if cls.cell_type.name == GridCellTypes.ROAD.name:
+        if cell_type == GridCellTypes.OBSTACLE:
             new_color = Color.green
-        # elif cls.cell_type == GridCellTypes.INTERSECTION:
-        #     cls.color = Color.darkgrey  # Dark gray for intersections
-        # else:
-        # cls.color = Color.red
-
-        # print(cls.row, cls.column, cls.cell_type)
-
-        cls.color = new_color
         cell = super().__new__(cls, color=new_color)
+        cell.row = row
+        cell.column = column
+        cell.movement_actions = (
+            [MovementActions.DO_NOTHING]
+            if movement_actions is None
+            else movement_actions
+        )
+        cell.cell_type = cell_type
+        cell.pos = np.array((row, column))
         return cell
 
     def can_overlap(self) -> bool:
