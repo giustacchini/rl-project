@@ -10,6 +10,13 @@ class MovementActions(enum.Enum):
     LEFT = (-1, 0)
 
 
+class GridCellTypes(enum.Enum):
+    OBSTACLE = "obstacles"
+    ROAD = "roads"
+    INTERSECTION = "intersections"
+    HIGHWAY = "highways"
+
+
 class EventType(Enum):
     MOVED = auto()
     INVALID_MOVE = auto()
