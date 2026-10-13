@@ -22,15 +22,9 @@ class SnowPlowEnv(MultiGridEnv):
     def __init__(self, agents, max_steps, render_mode=None, road_network=None):
         rows, columns = road_network["size"]
 
-        # if road_network is not None and road_network["size"] != (height, width):
-        #     raise ValueError(
-        #         "Road network size (rows, columns) must match (height, width)."
-        #     )
-
         # Keep a usable empty grid before reset; agent placement happens on reset.
         if road_network is None:
             raise ValueError("road_network must be provided for SnowPlowEnv")
-            # self.grid.wall_rect(0, 0, columns, rows)
 
         self.road_network = road_network
         super().__init__(
@@ -63,14 +57,6 @@ class SnowPlowEnv(MultiGridEnv):
 
         for agent in self.agents:
             self.place_agent(agent)
-
-    # def is_out_of_bounds(curr_cell: np.array[int, int], action: MovementActions, width, height):
-    #     return (
-    #         ((curr_cell.pos + action.value) < width)
-    #         or ((curr_cell.pos + action.value) < height)
-    #         or ((curr_cell.pos + action.value) > width)
-    #         or ((curr_cell.pos + action.value) > height)
-    #     )
 
     def place_obj(
         self,
@@ -122,13 +108,14 @@ class SnowPlowEnv(MultiGridEnv):
 
         return pos
 
-    def is_move_allowed(self, grid, agent, current_pos, intended_pos) -> bool:
-        """
-        Domain-specific movement hook.
-        Issue #6
-        overrides this to reject wrong-direction moves on one-way lanes.
-        """
-        return True
+    # TODO: REMOVE THIS?
+    # def is_move_allowed(self, grid, agent, current_pos, intended_pos) -> bool:
+    #     """
+    #     Domain-specific movement hook.
+    #     Issue #6
+    #     overrides this to reject wrong-direction moves on one-way lanes.
+    #     """
+    #     return True
 
     def handle_actions(self, actions: dict[AgentID, MovementActions]):
         movement_results = handle_simultaneous_movement(
@@ -176,7 +163,10 @@ class SnowPlowEnv(MultiGridEnv):
                     # Do something with cell
 
     def generate_actions_from_traffic_rules(self):
-        # TODO: Setup traffic rules (Agent actions) based on the road network configuration. This can include one-way streets, intersections, etc.
+        """
+        Setup traffic rules (Agent actions) based on the road network configuration (environment).
+        This includes neighborhood streets, intersections and highways.
+        """
         for cell in self.grid.grid:
             if cell is None:
                 raise ValueError("Grid cell is None. Check road network configuration.")
@@ -254,6 +244,7 @@ class SnowPlowEnv(MultiGridEnv):
                 elif dir == "down":
                     filter_movement_action = MovementActions.DOWN
 
+            # Prevent agents from going the opposite direction of the current lane.
             elif cell == GridCellTypes.INTERSECTION:
                 if dir == "up":
                     filter_movement_action = MovementActions.LEFT
@@ -264,6 +255,7 @@ class SnowPlowEnv(MultiGridEnv):
                 elif dir == "down":
                     filter_movement_action = MovementActions.RIGHT
 
+            # FIlter invalid actions
             movement_actions = list(filter(lambda x: x != filter_movement_action, movement_actions))
 
         return movement_actions
