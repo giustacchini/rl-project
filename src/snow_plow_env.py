@@ -1,6 +1,7 @@
 """Snow-plow environment with a configured traffic grid and shared movement."""
 
 from __future__ import annotations
+
 import math
 from typing import Callable
 
@@ -13,6 +14,7 @@ from Enums import GridCellTypes, MovementActions
 from grid_cell import GridCell
 from shared.grid import in_bounds, is_statically_blocked
 from shared.movement import handle_simultaneous_movement
+
 
 class SnowPlowEnv(MultiGridEnv):
     """Build traffic terrain and resolve simultaneous agent movement."""
@@ -49,16 +51,13 @@ class SnowPlowEnv(MultiGridEnv):
             return
 
         for category, cell_type in {grid_type.value: grid_type for grid_type in GridCellTypes}.items():
-            print(category, cell_type)
             for rectangle in self.road_network[category]:
-                print(self.road_network[category])
                 row, column = rectangle["position"]
                 row_count, column_count = rectangle["size"]
                 for x in range(column, column + column_count):
                     for y in range(row, row + row_count):
                         grid_cell = GridCell(row=y, column=x, cell_type=cell_type)
                         self.grid.set(x, y, grid_cell)
-                        print(grid_cell.color)
 
         self.generate_actions_from_traffic_rules()
 
@@ -147,7 +146,6 @@ class SnowPlowEnv(MultiGridEnv):
         return rewards
 
     def let_it_snow_let_it_snow_let_it_snow(self):
-
         # 1-3 clouds
         num_clouds = np.random.randint(1, 3)
         # 50/50 -> 3x3 or 5x5
@@ -182,6 +180,8 @@ class SnowPlowEnv(MultiGridEnv):
         for cell in self.grid.grid:
             if cell is None:
                 raise ValueError("Grid cell is None. Check road network configuration.")
+            elif cell.cell_type == GridCellTypes.OBSTACLE:
+                continue
 
             # (COLUMN, ROW) / (X, Y)
             up = (cell.column, cell.row - 1)
@@ -189,80 +189,97 @@ class SnowPlowEnv(MultiGridEnv):
             left = (cell.column - 1, cell.row)
             down = (cell.column, cell.row + 1)
 
-            up_allowed = in_bounds(self.width, self.height, up)
-            right_allowed = in_bounds(self.width, self.height, right)
-            left_allowed = in_bounds(self.width, self.height, left)
-            down_allowed = in_bounds(self.width, self.height, down)
-            print(up)
-            above_cell = self.grid.get(*up)  # Unpack tuple
-            right_cell = self.grid.get(*right)
-            left_cell = self.grid.get(*left)
-            lower_cell = self.grid.get(*down)
+            adjacent_cells = {"up": up, "right": right, "left": left, "down": down}
 
-            adjacent_cells = (above_cell, right_cell, left_cell, lower_cell)
-            allowed_actions = (up_allowed, right_allowed, left_allowed, down_allowed)
+            for dir, value in adjacent_cells.items():
+                try:
+                    adj_cell = self.grid.get(*value)  # Unpack tuple
+                    adjacent_cells[dir] = adj_cell.cell_type
+                except (TypeError, IndexError):
+                    # Out of bounds
+                    adjacent_cells[dir] = None
 
-            # Default to all directions except DO_NOTHING
+            movement_actions = []
             if cell.cell_type == GridCellTypes.HIGHWAY:
-                movement_actions = []
-                # Highway traffic rules
-                self.highway_traffic_rules(movement_actions, adjacent_cells, allowed_actions)
-            else:
-                movement_actions = [MovementActions.UP, MovementActions.DOWN, MovementActions.LEFT, MovementActions.RIGHT]
-                if cell.cell_type == GridCellTypes.INTERSECTION:
-                    # Intersection traffic rules
-                    # TODO: Prevent Agent from going back and fourth inside of an intersection. Maybe store last visited grid_type.
-                    self.intersection_traffic_rules(movement_actions, adjacent_cells, allowed_actions)
-                if cell.cell_type == GridCellTypes.ROAD:
-                    # Road traffic rules
-                    self.road_traffic_rules(movement_actions, adjacent_cells, allowed_actions)
+                movement_actions = self.highway_traffic_rules(adjacent_cells)
+            elif cell.cell_type == GridCellTypes.INTERSECTION:
+                # TODO: Prevent Agent from going back and fourth inside of an intersection. Maybe store last visited grid_type.
+                movement_actions = self.intersection_traffic_rules(adjacent_cells)
+            elif cell.cell_type == GridCellTypes.ROAD:
+                movement_actions = self.road_traffic_rules(adjacent_cells)
 
+            # Add default action of DO_NOTHING
+            movement_actions.append(MovementActions.DO_NOTHING)
+
+            # Add new actions to grid cell
             self.grid.set(
                 cell.column,
                 cell.row,
-                GridCell(row=cell.row, column=cell.column, cell_type=GridCellTypes.OBSTACLE, movement_actions=movement_actions),
+                GridCell(row=cell.row, column=cell.column, cell_type=cell.cell_type, movement_actions=movement_actions),
             )
 
-    def highway_traffic_rules(self, movement_actions: list[MovementActions], adjacent_cells, allowed_actions):
-        above_cell, right_cell, left_cell, lower_cell = adjacent_cells
-        up_allowed, right_allowed, left_allowed, down_allowed = allowed_actions
+    def highway_traffic_rules(self, adjacent_cells: dict):
+        allowed_action = None
 
-        if above_cell == GridCellTypes.OBSTACLE and up_allowed:
-            movement_actions.append(MovementActions.LEFT)
-        elif right_cell == GridCellTypes.OBSTACLE and right_allowed:
-            movement_actions.append(MovementActions.UP)
-        elif left_cell == GridCellTypes.OBSTACLE and left_allowed:
-            movement_actions.append(MovementActions.DOWN)
-        elif lower_cell == GridCellTypes.OBSTACLE and down_allowed:
-            movement_actions.append(MovementActions.RIGHT)
+        for dir, cell in adjacent_cells.items():
+            if cell is not None and cell == GridCellTypes.OBSTACLE:
+                if dir == "up":
+                    allowed_action = MovementActions.LEFT
+                elif dir == "right":
+                    allowed_action = MovementActions.UP
+                elif dir == "left":
+                    allowed_action = MovementActions.DOWN
+                elif dir == "down":
+                    allowed_action = MovementActions.RIGHT
 
-    def intersection_traffic_rules(self, movement_actions: list[MovementActions], adjacent_cells, allowed_actions):
-        above_cell, right_cell, left_cell, lower_cell = adjacent_cells
-        up_allowed, right_allowed, left_allowed, down_allowed = allowed_actions
+                if allowed_action is not None:
+                    break
+
+        return [allowed_action]
+
+    def intersection_traffic_rules(self, adjacent_cells: dict):
+        movement_actions = [MovementActions.UP, MovementActions.DOWN, MovementActions.LEFT, MovementActions.RIGHT]
 
         filter_movement_action = None
-        if above_cell == GridCellTypes.INTERSECTION and up_allowed:
-            filter_movement_action = MovementActions.LEFT
-        elif right_cell == GridCellTypes.INTERSECTION and right_allowed:
-            filter_movement_action = MovementActions.UP
-        elif left_cell == GridCellTypes.INTERSECTION and left_allowed:
-            filter_movement_action = MovementActions.DOWN
-        elif lower_cell == GridCellTypes.INTERSECTION and down_allowed:
-            filter_movement_action = MovementActions.RIGHT
-        movement_actions = filter(lambda x: x != filter_movement_action, movement_actions)
 
-    def road_traffic_rules(self, movement_actions: list[MovementActions], adjacent_cells, allowed_actions):
-        above_cell, right_cell, left_cell, lower_cell = adjacent_cells
-        up_allowed, right_allowed, left_allowed, down_allowed = allowed_actions
+        for dir, cell in adjacent_cells.items():
+            # Remove blocked movements
+            if cell is None:
+                if dir == "up":
+                    filter_movement_action = MovementActions.UP
+                elif dir == "right":
+                    filter_movement_action = MovementActions.RIGHT
+                elif dir == "left":
+                    filter_movement_action = MovementActions.LEFT
+                elif dir == "down":
+                    filter_movement_action = MovementActions.DOWN
 
-        filter_movement_action = []
-        # Avoid Obstacle and out of bounds
-        if above_cell == GridCellTypes.OBSTACLE and up_allowed:  # HACK: DOES THIS WORK / IS IT NEEDED?
-            filter_movement_action = filter_movement_action.append(MovementActions.UP)
-        if right_cell == GridCellTypes.OBSTACLE and right_allowed:
-            filter_movement_action = filter_movement_action.append(MovementActions.RIGHT)
-        if left_cell == GridCellTypes.OBSTACLE and left_allowed:
-            filter_movement_action = filter_movement_action.append(MovementActions.LEFT)
-        if lower_cell == GridCellTypes.OBSTACLE and down_allowed:
-            filter_movement_action = filter_movement_action.append(MovementActions.DOWN)
-        movement_actions = filter(lambda x: x != filter_movement_action, movement_actions)
+            elif cell == GridCellTypes.INTERSECTION:
+                if dir == "up":
+                    filter_movement_action = MovementActions.LEFT
+                elif dir == "right":
+                    filter_movement_action = MovementActions.UP
+                elif dir == "left":
+                    filter_movement_action = MovementActions.DOWN
+                elif dir == "down":
+                    filter_movement_action = MovementActions.RIGHT
+
+            movement_actions = list(filter(lambda x: x != filter_movement_action, movement_actions))
+
+        return movement_actions
+
+    def road_traffic_rules(self, adjacent_cells: dict):
+        movement_actions = []
+        for dir, cell in adjacent_cells.items():
+            # Add movement actions if cell exists is not an obstacle.
+            if cell is not None and not cell == GridCellTypes.OBSTACLE:
+                if dir == "up":
+                    movement_actions.append(MovementActions.UP)
+                elif dir == "right":
+                    movement_actions.append(MovementActions.RIGHT)
+                elif dir == "left":
+                    movement_actions.append(MovementActions.LEFT)
+                elif dir == "down":
+                    movement_actions.append(MovementActions.DOWN)
+                # movement_actions = list(filter(lambda x: x != filter_movement_action, movement_actions))
+        return movement_actions
