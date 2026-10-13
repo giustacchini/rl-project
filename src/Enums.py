@@ -1,6 +1,5 @@
 import enum
-
-import numpy as np
+from enum import Enum, auto
 
 
 class MovementActions(enum.Enum):
@@ -16,3 +15,17 @@ class GridCellTypes(enum.Enum):
     ROAD = "roads"
     INTERSECTION = "intersections"
     HIGHWAY = "highways"
+
+
+class EventType(Enum):
+    MOVED = auto()
+    INVALID_MOVE = auto()
+    AGENT_COLLISION = auto()
+    DO_NOTHING = auto()
+
+
+class SnowplowEvent(Enum):
+    PARTIALLY_CLEARED = auto()
+    SECONDARY_STREET_CLEARED = auto()
+    MAIN_STREET_CLEARED = auto()
+    ALL_CLEAN = auto()

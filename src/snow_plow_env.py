@@ -58,6 +58,10 @@ class SnowPlowEnv(MultiGridEnv):
         for agent in self.agents:
             self.place_agent(agent)
 
+    def get_observable_grid(self):
+        """Grid that the agents may see."""
+        return self.grid.state.copy()
+
     def place_obj(
         self,
         obj: WorldObj | None,
@@ -66,8 +70,8 @@ class SnowPlowEnv(MultiGridEnv):
         reject_fn: Callable[[MultiGridEnv, tuple[int, int]], bool] | None = None,
         max_tries=math.inf,
     ) -> tuple[int, int]:
-        """Sample an unoccupied walkable spawn cell, preserving its terrain.
-
+        """
+        Sample an unoccupied walkable spawn cell, preserving its terrain.
         Other objects retain the parent implementation's empty-cell placement.
         """
         if obj is not None:
