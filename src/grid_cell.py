@@ -1,8 +1,9 @@
+import numpy as np
 from mosaic_multigrid.core import Color
 from mosaic_multigrid.core.world_object import WorldObj
 from mosaic_multigrid.utils.rendering import fill_coords, point_in_rect
 
-from Enums import GridCellTypes
+from Enums import GridCellTypes, MovementActions
 
 
 class GridCell(WorldObj):
@@ -10,27 +11,53 @@ class GridCell(WorldObj):
 
     def __new__(
         cls,
-        color: Color = Color.blue,
+        row: int,
+        column: int,
         cell_type: GridCellTypes = GridCellTypes.ROAD,
-        snow_level: int = 1,
+        movement_actions: list[MovementActions] = [MovementActions.DO_NOTHING],
+        color: Color = Color.blue,
     ):
-        cell = super().__new__(cls, color=color)
-        cell.cell_type = cell_type
-        if cell.cell_type == GridCellTypes.OBSTACLE:
-            cell.color = Color.green
-        # elif cell.cell_type == GridCellTypes.INTERSECTION:
-        #     cell.color = (100, 100, 100)  # Darker gray than regular road to specify an intersection
-        else:
-            cell.color = Color.grey
 
-        if snow_level > 0 and cell_type is not GridCellTypes.OBSTACLE:
-            cell.color = (255, 255, 255)  # White for snow-covered cells
+        # Specifically for GridCell, we want to store the cell_type and snow_level as attributes, so we override __init__.
+        # def __init__(
+        #     self,
+        #     row: int,
+        #     column: int,
+        #     cell_type: GridCellTypes = GridCellTypes.ROAD,
+        #     movement_actions: list[MovementActions] = [MovementActions.DO_NOTHING],
+        #     snow_level: int = 1,
+        # ):
+        cls.row = row
+        cls.column = column
+        cls.movement_actions = movement_actions
+        # super().__init__((row, column))
+        cls.cell_type = cell_type
+        cls.pos = np.array((row, column))
 
+        new_color = color
+        if cls.cell_type.name == GridCellTypes.ROAD.name:
+            new_color = Color.green
+        # elif cls.cell_type == GridCellTypes.INTERSECTION:
+        #     cls.color = Color.darkgrey  # Dark gray for intersections
+        # else:
+        # cls.color = Color.red
+
+        # print(cls.row, cls.column, cls.cell_type)
+
+        cls.color = new_color
+        cell = super().__new__(cls, color=new_color)
         return cell
 
-    def __init__(self, pos: tuple[int, int], cell_type: GridCellTypes, snow_level: int = 1):
-        super().__init__(pos)
-        self.cell_type = cell_type
+    def can_overlap(self) -> bool:
+        return self.cell_type != GridCellTypes.OBSTACLE
+
+    def render(self, img):
+        fill_coords(img, point_in_rect(0.031, 1, 0.031, 1), self.color.rgb())
+
+    def set_snow_level(self, snow_level: int):
+        # Snow attributes
+        if snow_level > 0 and self.cell_type is not GridCellTypes.OBSTACLE:
+            self.color = Color.white  # White for snow-covered cells
 
         if not isinstance(snow_level, int) or snow_level < 0:
             raise ValueError("snow_level must be a non-negative integer")
@@ -39,8 +66,4 @@ class GridCell(WorldObj):
         else:
             self.snow_level = snow_level
 
-    def can_overlap(self) -> bool:
-        return self.cell_type != GridCellTypes.OBSTACLE
-
-    def render(self, img):
-        fill_coords(img, point_in_rect(0.031, 1, 0.031, 1), self.color.rgb())
+        # self.render()

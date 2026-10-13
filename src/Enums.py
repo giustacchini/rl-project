@@ -1,5 +1,7 @@
 import enum
 
+import numpy as np
+
 
 class MovementActions(enum.Enum):
     DO_NOTHING = (0, 0)
@@ -10,7 +12,7 @@ class MovementActions(enum.Enum):
 
 
 class GridCellTypes(enum.Enum):
-    OBSTACLE = 0
-    ROAD = 1
-    INTERSECTION = 2
-    HIGHWAY = 3
+    OBSTACLE = "obstacles"
+    ROAD = "roads"
+    INTERSECTION = "intersections"
+    HIGHWAY = "highways"
