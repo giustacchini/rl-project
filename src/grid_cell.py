@@ -25,11 +25,7 @@ class GridCell(WorldObj):
         cell = super().__new__(cls, color=new_color)
         cell.row = row
         cell.column = column
-        cell.movement_actions = (
-            [MovementActions.DO_NOTHING]
-            if movement_actions is None
-            else movement_actions
-        )
+        cell.movement_actions = [MovementActions.DO_NOTHING] if movement_actions is None else movement_actions
         cell.cell_type = cell_type
         cell.pos = np.array((row, column))
         return cell
@@ -43,7 +39,12 @@ class GridCell(WorldObj):
     def set_snow_level(self, snow_level: int):
         # Snow attributes
         if snow_level > 0 and self.cell_type is not GridCellTypes.OBSTACLE:
-            self.color = Color.white  # White for snow-covered cells
+            if snow_level == 3:
+                self.color = Color.snow_level3  # White for snow-covered cells (level 3)
+            if snow_level == 2:
+                self.color = Color.snow_level2
+            if snow_level == 1:
+                self.color = Color.snow_level1  # More towards light blue for lower snow levels
 
         if not isinstance(snow_level, int) or snow_level < 0:
             raise ValueError("snow_level must be a non-negative integer")

@@ -19,7 +19,7 @@ from shared.movement import handle_simultaneous_movement
 class SnowPlowEnv(MultiGridEnv):
     """Build traffic terrain and resolve simultaneous agent movement."""
 
-    def __init__(self, agents, max_steps, render_mode=None, road_network=None):
+    def __init__(self, road_network=None, **kwargs):
         rows, columns = road_network["size"]
 
         # Keep a usable empty grid before reset; agent placement happens on reset.
@@ -27,13 +27,7 @@ class SnowPlowEnv(MultiGridEnv):
             raise ValueError("road_network must be provided for SnowPlowEnv")
 
         self.road_network = road_network
-        super().__init__(
-            agents=agents,
-            width=columns,
-            height=rows,
-            max_steps=max_steps,
-            render_mode=render_mode,
-        )
+        super().__init__(width=columns, height=rows, **kwargs)
 
     def _gen_grid(self, width: int, height: int):
         """Expand configured rectangles and place agents on walkable terrain."""
@@ -136,11 +130,13 @@ class SnowPlowEnv(MultiGridEnv):
         rewards = {agent.index: 0 for agent in self.agents}
         return rewards
 
-    def let_it_snow_let_it_snow_let_it_snow(self):
+    def let_it_snow_let_it_snow_let_it_snow(self, seed=None):
+
+        np.random.seed(seed)
         # 1-3 clouds
         num_clouds = np.random.randint(1, 3)
-        # 50/50 -> 3x3 or 5x5
-        clouds_size = np.random.randint(1, 2)
+        # 1x1 or 3x3 or 5x5
+        clouds_size = np.random.randint(0, 2)
 
         width = self.grid.width
         height = self.grid.height
@@ -152,18 +148,20 @@ class SnowPlowEnv(MultiGridEnv):
 
             center_cell = self.grid.get(column, row)
 
+            snow_intensity = np.random.randint(1, 3)
+
             for row_offset in range(-clouds_size, clouds_size + 1):
                 for col_offset in range(-clouds_size, clouds_size + 1):
                     row = center_cell.row + row_offset
                     col = center_cell.column + col_offset
 
                     # Stop at grid boundaries
-                    if not (0 <= row < self.grid.height and 0 <= col < self.grid.width):
+                    if not (0 <= row < height and 0 <= col < width):
                         continue
 
-                    cell = self.grid.get(row, col)
+                    cell: GridCell = self.grid.get(col, row)
 
-                    cell.set_snow_level()
+                    cell.set_snow_level(snow_intensity)
                     # Do something with cell
 
     def generate_actions_from_traffic_rules(self):
