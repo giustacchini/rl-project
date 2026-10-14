@@ -8,9 +8,6 @@ IMPORTANT: this is a generalization of the movement-conflict logic
 `build_movement_intentions` / `validate_proposed_moves` /
 `resolve_simultaneous_conflicts` / `commit_resolved_positions`).
 """
-
-from __future__ import annotations
-
 from collections import defaultdict
 from typing import Callable, Optional
 
@@ -78,8 +75,7 @@ def validate_proposed_moves(
         blocked = not record["action_valid"] or not in_bounds(width, height, intended_pos) or is_statically_blocked(grid, intended_pos)
 
         if not blocked and current_pos != intended_pos and is_move_allowed is not None:
-            agent = agents_by_id[agent_id]
-            if not is_move_allowed(grid, agent, current_pos, intended_pos):
+            if not is_move_allowed(grid, current_pos, intended_pos):
                 blocked = True
 
         if blocked:

@@ -53,12 +53,8 @@ def test_traffic_agents_spawn_on_distinct_preserved_walkable_cells(seed):
     assert [tuple(agent.state.pos) for agent in env.agents] == positions
 
 
-def test_traffic_map_rejects_mismatched_dimensions():
-    with pytest.raises(ValueError, match="Road network size"):
-        SnowPlowEnv(
-            agents=2,
-            width=8,
-            height=8,
-            max_steps=50,
-            road_network=road_network_1,
-        )
+def test_traffic_map_dimensions_come_from_road_network():
+    env = make_traffic_env(42, road_network_1)
+
+    assert env.width == road_network_1["size"][1]
+    assert env.height == road_network_1["size"][0]

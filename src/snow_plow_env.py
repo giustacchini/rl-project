@@ -10,22 +10,24 @@ from mosaic_multigrid.base import AgentID, MultiGridEnv
 from mosaic_multigrid.core.grid import Grid
 from mosaic_multigrid.core.world_object import WorldObj
 
-from Enums import GridCellTypes, MovementActions
+from Enums import EventType, GridCellTypes, MovementActions
 from grid_cell import GridCell
 from shared.grid import in_bounds, is_statically_blocked
+from shared.events import EventLog
 from shared.movement import handle_simultaneous_movement
+from snowplow.rewards import make_snowplow_reward_calculator
 
 
 class SnowPlowEnv(MultiGridEnv):
     """Build traffic terrain and resolve simultaneous agent movement."""
 
     def __init__(self, agents, max_steps, render_mode=None, road_network=None):
-        rows, columns = road_network["size"]
-
-        # Keep a usable empty grid before reset; agent placement happens on reset.
         if road_network is None:
             raise ValueError("road_network must be provided for SnowPlowEnv")
 
+        rows, columns = road_network["size"]
+
+        # Keep a usable empty grid before reset; agent placement happens on reset.
         self.road_network = road_network
         super().__init__(
             agents=agents,
@@ -34,6 +36,7 @@ class SnowPlowEnv(MultiGridEnv):
             max_steps=max_steps,
             render_mode=render_mode,
         )
+        self.event_log = EventLog()
 
     def _gen_grid(self, width: int, height: int):
         """Expand configured rectangles and place agents on walkable terrain."""
@@ -112,14 +115,22 @@ class SnowPlowEnv(MultiGridEnv):
 
         return pos
 
-    # TODO: REMOVE THIS?
-    # def is_move_allowed(self, grid, agent, current_pos, intended_pos) -> bool:
-    #     """
-    #     Domain-specific movement hook.
-    #     Issue #6
-    #     overrides this to reject wrong-direction moves on one-way lanes.
-    #     """
-    #     return True
+    def is_move_allowed(self, grid, current_pos, intended_pos) -> bool:
+        """Return whether the current traffic cell permits this movement."""
+        current_cell = grid.get(*current_pos)
+        if current_cell is None:
+            return False
+
+        delta = tuple(
+            intended_coordinate - current_coordinate
+            for current_coordinate, intended_coordinate in zip(current_pos, intended_pos)
+        )
+        try:
+            action = MovementActions(delta)
+        except ValueError:
+            return False
+
+        return action in current_cell.movement_actions
 
     def handle_actions(self, actions: dict[AgentID, MovementActions]):
         movement_results = handle_simultaneous_movement(
@@ -132,9 +143,37 @@ class SnowPlowEnv(MultiGridEnv):
         )
         self.last_movement_results = movement_results
 
-        # Placeholder rewards -- actual SnowPlow rewards are for future issues
-        rewards = {agent.index: 0 for agent in self.agents}
-        return rewards
+        self.event_log.clear()
+        collision_statuses = {
+            "blocked_same_destination",
+            "blocked_swap",
+            "blocked_occupied_cell",
+        }
+        for agent_id, result in movement_results.items():
+            status = result["status"]
+            if status == "moved":
+                event_type = EventType.MOVED
+            elif status == "waited":
+                event_type = EventType.DO_NOTHING
+            elif status in collision_statuses:
+                event_type = EventType.AGENT_COLLISION
+            else:
+                event_type = EventType.INVALID_MOVE
+
+            self.event_log.emit(
+                event_type,
+                agent_id=agent_id,
+                status=status,
+                current_position=tuple(result["current_position"]),
+                resolved_position=tuple(result["resolved_position"]),
+            )
+
+        team_of_agent = {agent.index: None for agent in self.agents}
+        reward_result = make_snowplow_reward_calculator().calculate_rewards(
+            self.event_log.events(),
+            team_of_agent,
+        )
+        return reward_result.individual
 
     def let_it_snow_let_it_snow_let_it_snow(self):
         # 1-3 clouds

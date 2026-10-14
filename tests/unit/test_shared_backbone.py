@@ -17,8 +17,22 @@ from shared.rendering import ascii_grid
 from snow_plow_env import SnowPlowEnv
 
 
+def make_road_network(width=8, height=8):
+    return {
+        "size": (height, width),
+        "roads": [{"position": (0, 0), "size": (height, width)}],
+        "highways": [],
+        "intersections": [],
+        "obstacles": [],
+    }
+
+
 def make_env(num_agents=1, width=8, height=8, max_steps=50, seed=1):
-    env = SnowPlowEnv(agents=num_agents, width=width, height=height, max_steps=max_steps)
+    env = SnowPlowEnv(
+        agents=num_agents,
+        max_steps=max_steps,
+        road_network=make_road_network(width, height),
+    )
     env.reset(seed=seed)
     return env
 
@@ -48,8 +62,8 @@ def test_reset_returns_valid_agent_positions():
 
 
 def test_same_seed_is_reproducible():
-    e1 = SnowPlowEnv(agents=4, width=10, height=10, max_steps=50)
-    e2 = SnowPlowEnv(agents=4, width=10, height=10, max_steps=50)
+    e1 = make_env(num_agents=4, width=10, height=10, max_steps=50)
+    e2 = make_env(num_agents=4, width=10, height=10, max_steps=50)
     e1.reset(seed=123)
     e2.reset(seed=123)
     pos1 = [tuple(a.state.pos) for a in e1.agents]
@@ -58,8 +72,8 @@ def test_same_seed_is_reproducible():
 
 
 def test_different_seed_usually_differs():
-    e1 = SnowPlowEnv(agents=4, width=10, height=10, max_steps=50)
-    e2 = SnowPlowEnv(agents=4, width=10, height=10, max_steps=50)
+    e1 = make_env(num_agents=4, width=10, height=10, max_steps=50)
+    e2 = make_env(num_agents=4, width=10, height=10, max_steps=50)
     e1.reset(seed=1)
     e2.reset(seed=2)
     pos1 = [tuple(a.state.pos) for a in e1.agents]
@@ -89,20 +103,12 @@ def test_swap_conflict_blocks_both():
     assert status_of(env, 1) == "blocked_swap"
 
 
-def test_move_into_border_wall_is_blocked():
+def test_move_out_of_bounds_is_blocked():
     env = make_env(num_agents=1, width=8, height=8)
-    set_positions(env, [(1, 0)])  # row 0 sits just inside the border wall
-    env.handle_actions({0: MovementActions.UP})  # would move onto y=-1 -> wall row
+    set_positions(env, [(1, 0)])
+    env.handle_actions({0: MovementActions.UP})
     assert status_of(env, 0) == "blocked_invalid_action"
     assert tuple(env.agents[0].state.pos) == (1, 0)
-
-
-def test_move_into_wall_cell_is_blocked():
-    env = make_env(num_agents=1, width=8, height=8)
-    set_positions(env, [(1, 1)])
-    env.handle_actions({0: MovementActions.LEFT})  # (0,1) is still inside border wall
-    assert status_of(env, 0) == "blocked_invalid_action"
-    assert tuple(env.agents[0].state.pos) == (1, 1)
 
 
 # ---------------------------------------------------------------------
@@ -132,7 +138,7 @@ def test_rgb_frame_renders_without_crashing():
 
 
 def test_many_random_episodes_do_not_crash():
-    env = SnowPlowEnv(agents=2, width=8, height=8, max_steps=20)
+    env = make_env(num_agents=2, width=8, height=8, max_steps=20)
     rng = np.random.default_rng(0)
     for episode in range(20):
         env.reset(seed=episode)

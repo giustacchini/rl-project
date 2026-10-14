@@ -36,6 +36,9 @@ def main():
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
+
+
+            # env.step({agent.index: agent. for agent in env.agents})
             if running:
                 env.render()
     finally:

@@ -10,9 +10,6 @@ Expected environment API (PettingZoo Parallel style):
     obs, info = env.reset(seed=...)                 # obs: {agent_id: observation}
     obs, rew, term, trunc, info = env.step(actions) # every one a {agent_id: value} dict
 """
-
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable
