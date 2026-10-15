@@ -149,7 +149,8 @@ def cmd_play(args) -> None:
             if args.gif:
                 frames.append(env.get_frame(False, 24))
             res = adapter.step(act(obs, adapter.mask, new_episode))
-            print(env.step_count, [(r, c, int(env.snow_field.snow[r, c]), bool(env.snow_field.cloud_mask()[r, c])) for r, c in [(2, 0), (3, 0), (4, 0), (4, 1)]])
+            # check when snow clouds appear in a certain area of the grid (for debugging)
+            # print(env.step_count, [(r, c, int(env.snow_field.snow[r, c]), bool(env.snow_field.cloud_mask()[r, c])) for r, c in [(2, 0), (3, 0), (4, 0), (4, 1)]])
             obs, new_episode, done = res.obs, False, res.done
         info = res.info.get("episode", {})
     else:
