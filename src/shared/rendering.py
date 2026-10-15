@@ -1,22 +1,10 @@
 # python
 # shared/rendering.py
 """
-Debug rendering for issue #5.
+Shared PNG export and dependency-free text rendering.
 
-mosaic_multigrid's `MultiGridEnv.render()` / `get_frame()` are already
-generic: they call `self.grid.render(tile_size, agents=self.agents, ...)`
-with no sport-specific code in the base class (sport renderers only
-override `get_full_render()` in soccer_game.py / basketball_game.py /
-american_football_game.py for court markings). So for SnowPlow -- which
-doesn't override `get_full_render` -- `env.render()` with
-`render_mode='rgb_array'` already gives a correct top-down image with
-every agent drawn, no custom renderer needed.
-
-This module adds two things on top of that:
-1. `save_frame()` - a one-liner to dump a PNG for a README/report figure.
-2. `ascii_grid()` - a fast, dependency-free text render for use inside
-   pytest / CI, where spinning up pygame for every test is unnecessary
-   overhead and can be flaky in headless environments.
+PNG export uses the environment's renderer, including domain-specific visuals.
+Text rendering shows blocking terrain and agent positions without opening a window.
 """
 
 from __future__ import annotations

@@ -16,10 +16,10 @@ from snowplow.env import SnowPlowEnv
 from snowplow.maps import MAPS
 
 
-def make_env(map_name: str, config: SnowplowConfig, render_mode: str | None = None) -> SnowPlowEnv:
+def make_env(map_name: str, config: SnowplowConfig, render_mode: str | None = None, render_fps: int = 20) -> SnowPlowEnv:
     if map_name not in MAPS:
         raise ValueError(f"unknown map {map_name!r}; choose one of {sorted(MAPS)}")
-    return SnowPlowEnv(MAPS[map_name], config, render_mode=render_mode)
+    return SnowPlowEnv(MAPS[map_name], config, render_mode=render_mode, render_fps=render_fps)
 
 
 def make_env_fn(map_name: str, config: SnowplowConfig) -> Callable[[], SnowPlowEnv]:

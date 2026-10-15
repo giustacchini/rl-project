@@ -1,93 +1,114 @@
-# Introduction to Reinforcement Learning Course - Final Project
+# Multi-agent snowplow environment
 
-**Dr. Teddy Lazebnik**  
-**1.10.2024**
+A seeded gridworld where snowplows clear roads, obey lane directions, and act
+simultaneously. The shared movement, observations, events, rewards, and metrics
+can also support other gridworld environments.
 
-## Abstract
+## Setup
 
-The final project aims to apply reinforcement learning techniques to a real-world or simulated problem. Students will independently conceive, design, implement, and evaluate a reinforcement learning solution. The project should demonstrate a deep understanding of the course material and the ability to apply it creatively.
+Use Python 3.12. From the repository root:
 
-## Project Requirements
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
 
-### Project Selection
+The requirements include CPU PyTorch for training. Environment simulation,
+random/greedy baselines, and rendering do not require PyTorch; training tests
+are skipped when it is absent.
 
-Students are expected to propose a unique and challenging reinforcement learning project that aligns with the course content and demonstrates their ability to apply the learned concepts.
+## Run
 
-### Project Topic Selection
+All commands below run from the repository root using the activated environment.
 
-- **Relevance:** The project should be relevant to the field of reinforcement learning and have potential real-world applications.
-- **Originality:** Students are encouraged to propose original project ideas or explore novel approaches to existing problems.
-- **Feasibility:** The project should be achievable within the given timeframe and resources.
+```bash
+# Watch Experiment 1: one plow with full observability.
+python src/main.py play --experiment exp1 --policy greedy --render
 
-### Problem Formulation
+# Run random and greedy baselines and save JSON/CSV metrics.
+python src/main.py baselines --experiment exp1 --episodes 50 --seed 1000 --out results/exp1
 
-**Clear Definition:** The reinforcement learning problem should be clearly defined, including:
+# Quick headless check on the smaller map.
+python src/main.py baselines --map small --episodes 2 --max-steps 30
 
-- **States:** The set of all possible states the agent can be in.
-- **Actions:** The set of actions the agent can take in each state.
-- **Rewards:** The feedback signal that the agent receives for its actions.
-- **Environment Dynamics:** The rules governing the transitions between states.
+# Export an episode as a GIF without opening a window.
+python src/main.py play --map small --policy random --max-steps 30 --gif results/random.gif
 
-**Objective:** The project should have a well-defined goal or objective for the agent to achieve.
+# Train and evaluate a model (requires PyTorch).
+python src/main.py train --experiment exp1 --steps 500000 --seed 0 --out results/exp1_model
+python src/main.py evaluate --run results/exp1_model --episodes 100 --seed 1000
+python src/main.py play --policy model --run results/exp1_model --render
+```
 
-### Data and Environment
+Create the GIF's parent directory before exporting. Use `python src/main.py --help`
+or a subcommand's `--help` for all options. Rendering a window requires a desktop;
+GIF export and baseline evaluation can run without one.
 
-- **Data Availability:** If the project involves real-world data, students should ensure its availability and accessibility.
-- **Environment Creation:** If a simulated environment is required, students should consider using existing platforms or building their own.
-- **Environment Complexity:** The chosen environment should provide sufficient challenges for the reinforcement learning agent.
+| Preset | Plows | Observations | Trainer |
+|---|---:|---|---|
+| `exp1` | 1 | Full map | PPO |
+| `exp2` | 1 | Local window | Recurrent PPO |
+| `exp3` | 2 | Full map | MAPPO |
+| `exp4` | 2 | Local window | Recurrent MAPPO |
 
-### Project Scope
+`--plows`, `--obs`, and `--view` override the environment preset. Maps are selected
+with `--map network_1` (10 rows, 19 columns) or `--map small` (8 rows, 9 columns).
+An episode ends on successful cleaning after snow has fallen, or at `--max-steps`.
 
-The project scope should demonstrate a comprehensive understanding of reinforcement learning concepts and their application to a real-world or simulated problem.
+## Code structure
 
-## Depth of Exploration
+```text
+src/
+  main.py                  CLI: play, baselines, train, evaluate
+  Enums.py                 Action ordering, terrain categories, event names
+  shared/                  Movement, grid checks, observations, events, rewards, metrics
+  snowplow/
+    env.py                 The single SnowPlowEnv implementation and step lifecycle
+    config.py              SnowplowConfig and SnowConfig
+    maps.py                Map rectangles and map registry
+    road_map.py            Terrain, street membership, and traffic rules
+    snow.py                Snow levels, clearing, and cloud lifecycle
+    cell.py                Mosaic rendering objects
+    encoding.py            Observation/state vectors for algorithms
+    factory.py             Environment construction shared by the CLI and trainers
+    baselines.py            Random and greedy reference policies
+    evaluation.py          Episode execution and metric aggregation
+    experiments.py         Experiment presets
+    rewards.py             Snowplow event reward values
+  algorithms/              Environment adapter, PPO/MAPPO, reward shaping, MADDPG
+```
 
-- **Algorithm Selection:** Students should justify their choice of reinforcement learning algorithm(s) based on the problem characteristics and state-of-the-art research.
-- **Hyperparameter Tuning:** A thorough exploration of hyperparameter space is expected to optimize agent performance.
-- **Evaluation Metrics:** Students should define appropriate metrics to assess the agent’s performance and compare different approaches.
+Use `snowplow.env.SnowPlowEnv` and configure it with `SnowplowConfig`; for named
+maps use `snowplow.factory.make_env`. The former root-level environment, traffic,
+and cell modules have been retired. See [migration notes](docs/REFACTOR_NOTES.md).
 
-## Innovation and Creativity
+## Conventions and behavior
 
-- **Novel Approaches:** Students are encouraged to explore innovative techniques or combinations of methods.
-- **Theoretical Contributions:** If applicable, students can contribute to the theoretical understanding of reinforcement learning.
-- **Practical Impact:** The project should demonstrate the potential practical impact of the developed solution.
+Map rectangles use `(row, column)` positions and `(row count, column count)` sizes.
+Simulation arrays use `[row, column]`; agent positions use `(x, y) = (column, row)`.
 
-## Project Deliverables
+Actions are indexed in the order `DO_NOTHING, UP, DOWN, RIGHT, LEFT`. Policies
+receive legal-action masks. Full observations include snow, terrain, lane rules,
+and plow positions; cloud locations are hidden. Local observations use 3x3 or
+5x5 windows. The API is Parallel-style and uses the project's algorithm adapter;
+it is not a claim of strict PettingZoo API compatibility.
 
-The final project deliverables should comprehensively document the project process, results, and code.
+Default snow levels are 0–3 and plows clear at most two layers per pass. Movement
+costs -1, waiting -2, and invalid movement -5. Clearing a snowy cell gives +1;
+completing a secondary/main street gives +2/+4. Collision events cost -10 and
+completion gives +100 as shared team rewards. A street is one configured
+rectangle, so splitting rectangles changes street-completion rewards. Values
+and sharing rules are defined in `snowplow/rewards.py` and `shared/rewards.py`.
 
-### Written Report
+## Tests and documentation
 
-- **Project Overview:** Clear and concise description of the project goals, motivation, and scope.
-- **Problem Formulation:** Detailed explanation of the reinforcement learning problem, including state space, action space, reward function, and environment dynamics.
-- **Methodology:** Description of the chosen reinforcement learning algorithm(s), implementation details, and hyperparameter tuning process.
-- **Results:** Presentation of experimental results, including quantitative and qualitative analysis.
-- **Discussion:** Analysis of the results, comparison to existing work, and identification of limitations.
-- **Conclusion:** Summary of the project’s findings and contributions.
+```bash
+python -m pytest -q
+```
 
-### Code
-
-- **Clean and Organized Code:** Well-structured, commented, and readable code implementation of the reinforcement learning agent.
-- **Reproducibility:** Clear instructions on how to run the code and reproduce the results.
-- **Version Control:** Use of version control (e.g., Git) to manage code changes.
-
-### Presentation
-
-- **Clear Communication:** Effective presentation of the project’s key findings and insights - 15 minutes.
-- **Visual Aids:** Use of slides, demos, or other visual aids to enhance understanding - your call.
-
-## Evaluation Criteria
-
-The final project will be evaluated based on the following criteria:
-
-- **Problem Formulation:** The clarity and depth of the problem definition, including state space, action space, and reward function.
-- **Algorithm Selection:** The appropriateness of the chosen reinforcement learning algorithm(s) for the problem.
-- **Implementation Quality:** The correctness, efficiency, and maintainability of the code implementation.
-
-## Additional Comments
-
-Students must adhere to academic integrity guidelines. Plagiarism and collusion will not be tolerated.
-
-If working in groups, all members must contribute to the project. Groups of up to 4 students are allowed. Please note that larger groups are expected to produce “larger” projects and reports.
-
-The reports are expected to be between 8 and 20 pages long (not including the reference list) with 1.5 line spacing, Arial 12 font, one-inch margin.
+The tests cover traffic layout, lane restrictions, simultaneous collisions,
+seeded spawning and snowfall, observations, rewards, termination, metrics,
+rendering, and algorithm adapters. Training smoke tests also run when PyTorch
+is installed. See [testing guide](docs/TESTING.md),
+[course assignment](docs/ASSIGNMENT.md), and [contribution process](docs/PROCESS.md).

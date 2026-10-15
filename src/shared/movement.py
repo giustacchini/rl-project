@@ -1,12 +1,10 @@
 # python
 # shared/movement.py
 """
-Generic simultaneous multi-agent movement resolution
+Generic simultaneous multi-agent movement resolution.
 
-IMPORTANT: this is a generalization of the movement-conflict logic
-(`src/snow_plow_env.py`,
-`build_movement_intentions` / `validate_proposed_moves` /
-`resolve_simultaneous_conflicts` / `commit_resolved_positions`).
+Build intentions, validate them, resolve conflicts, then commit positions.
+Domain-specific restrictions are supplied through the movement hook.
 """
 from collections import defaultdict
 from typing import Callable, Optional
@@ -17,8 +15,8 @@ from mosaic_multigrid.base import AgentID
 from Enums import MovementActions
 from shared.grid import in_bounds, is_statically_blocked
 
-# Type alias: (grid, agent, current_pos, intended_pos) -> bool
-MoveAllowedFn = Callable[[object, object, tuple, tuple], bool]
+# Type alias: (grid, current_pos, intended_pos) -> bool
+MoveAllowedFn = Callable[[object, tuple, tuple], bool]
 
 
 def build_movement_intentions(agents, actions: dict[AgentID, MovementActions]) -> dict:

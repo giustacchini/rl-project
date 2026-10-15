@@ -1,8 +1,8 @@
 # Refactor notes: where did the old code go?
 
-Branch `jc/full-pipeline` = `jc/agent-implementation` + `ma/road_construction` merged, then refactored.
-Because ma is already merged in, merging `ma/road_construction` or `dev` later should not conflict
-with the files below (they were replaced on this branch).
+The snowplow implementation lives in `src/snowplow/`. The old root-level
+environment, traffic, and cell modules have been removed; callers must use the
+package API described below. `src/main.py` is the only command-line entry point.
 
 | Old | New | What changed |
 |---|---|---|
@@ -20,3 +20,19 @@ with the files below (they were replaced on this branch).
 | `algorithms/ppo.py` | same file | + action masks, `make_policy()`, `reward_scale`; IPPO removed |
 | `algorithms/adapter.py` | same file | + action masks, `positions` info for LCR |
 | tests for old API | `tests/unit/...` | rewritten; golden table of the traffic rules in `tests/golden/` |
+
+## Migrating callers and tests
+
+- Import `SnowPlowEnv` from `snowplow.env` and maps from `snowplow.maps`.
+- Pass `SnowplowConfig(n_plows=..., max_steps=...)` as `config` instead of passing
+  `agents`, `width`, `height`, or `max_steps` directly to the environment.
+- Map dimensions come from the map's `size`. Invalid rectangles are rejected by
+  `RoadMap.from_config`; the environment no longer takes independent dimensions.
+- Call `reset()` and `step()`; direct calls to the old `handle_actions()` skipped
+  the snow, cloud, reward, termination, observation, and metric lifecycle.
+- Read simulation terrain from `env.road_map.codes` and snow from
+  `env.snow_field.snow`. Render cells use `terrain`, not the old `cell_type` field.
+- Traffic-grid regression tests now live in `tests/unit/snowplow/test_traffic_grid.py`.
+  They check the original CSV layout, walkability, rendering, seeded distinct
+  spawning, terrain preservation, and rejection of a map whose rectangles do
+  not fit its dimensions.

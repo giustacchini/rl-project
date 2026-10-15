@@ -1,6 +1,21 @@
 # Testing Guide
 
-This document provides guidelines for writing and running tests in a python project
+Run from the repository root with the project's virtual environment activated:
+
+```bash
+python -m pytest -q
+python -m pytest tests/unit/snowplow -q
+python -m pytest tests/unit/shared -q
+python -m pytest tests/unit/algorithms -q
+```
+
+`pytest.ini` adds `src/` to the import path and enables coverage. Simulation tests
+run without a desktop. Training smoke tests use `pytest.importorskip("torch")`;
+install `requirements.txt` to include them.
+
+Tests mirror the `shared/`, `snowplow/`, and `algorithms/` source packages. Use
+`snowplow.env.SnowPlowEnv` or `snowplow.factory.make_env`; the retired root-level
+environment modules are no longer supported.
 
 ## Testing Framework
 
@@ -78,10 +93,10 @@ def test_compute_bounds():
 pytest
 
 # Run specific test file
-pytest tests/export/test_generate_png_export.py
+pytest tests/unit/snowplow/test_env.py
 
 # Run specific test
-pytest tests/export/test_generate_png_export.py::test_compute_bounds
+pytest tests/unit/snowplow/test_env.py::test_episode_truncates_at_max_steps
 ```
 
 ### Example of Good Test Organization

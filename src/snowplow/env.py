@@ -78,7 +78,9 @@ class SnowPlowEnv(MultiGridEnv):
         config: SnowplowConfig | None = None,
         render_mode: str | None = None,
         screen_size: int = 900,
+        render_fps: int = 20
     ):
+        self.metadata["render_fps"] = render_fps
         self.config = config or SnowplowConfig()
         self.road_map = RoadMap.from_config(road_network or road_network_1)
         self.snow_field = SnowField(self.road_map, self.config.snow)

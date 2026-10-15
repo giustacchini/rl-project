@@ -45,22 +45,9 @@ class EventType(Enum):
 
 
 class SnowplowEvent(Enum):
-<<<<<<< HEAD
     """Events specific to the snowplow task (used for rewards)."""
 
     PARTIALLY_CLEARED = auto()  # a plow removed snow from one cell
     SECONDARY_STREET_CLEARED = auto()  # a secondary street became snow-free
     MAIN_STREET_CLEARED = auto()  # a main street (highway) became snow-free
     ALL_CLEAN = auto()  # every road is snow-free: episode success
-=======
-    PARTIALLY_CLEARED = auto()
-    SECONDARY_STREET_CLEARED = auto()
-    MAIN_STREET_CLEARED = auto()
-    ALL_CLEAN = auto()
-
-class GridCellTypes(enum.Enum):
-    OBSTACLE = 0
-    ROAD = 1
-    INTERSECTION = 2
-    HIGHWAY = 3
->>>>>>> 11f23a3 (Add: Created grid cell types)
