@@ -21,11 +21,11 @@ class SnowPlowEnv(MultiGridEnv):
     """Build traffic terrain and resolve simultaneous agent movement."""
 
     def __init__(self, road_network=None, **kwargs):
-        rows, columns = road_network["size"]
-
         # Keep a usable empty grid before reset; agent placement happens on reset.
         if road_network is None:
             raise ValueError("road_network must be provided for SnowPlowEnv")
+
+        rows, columns = road_network["size"]
 
         self.road_network = road_network
         self.snow_layer_count = 0
