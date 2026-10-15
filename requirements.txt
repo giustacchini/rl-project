@@ -1,4 +1,7 @@
-pytest
-pytest-cov
+--extra-index-url https://download.pytorch.org/whl/cpu
+numpy
+torch
 mosaic-multigrid
 pillow
+pytest
+pytest-cov

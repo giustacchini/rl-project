@@ -1,0 +1,10 @@
+   D    #    #    D    #    #    #    D    #    #    #    D    #    #    #    D    #    #    D
+ DRU   LR   LR  DLU    #    #    #  DRU   LR   LR   LR  LRU   LR   LR   LR DLRU   LR   LR  DLU
+  DU    #    #   DU    #    #    #   DU    #    #    #    #    #    #    #   DU    #    #   DU
+  DU    #    #   DU    #    #    #   DU    #    #    #    #    #    #    #   DU    #    #   DU
+  DU    L    L  DLU    L    L    L  DLU    L    L    L   DL    L    L    L  DLU    L    L  DLU
+ DRU    R    R  DRU    R    R    R  DRU    R    R    R  DRU    R    R    R  DRU    R    R   DU
+  DU    #    #   DU    #    #    #   DU    #    #    #   DU    #    #    #   DU    #    #   DU
+  DU    #    #   DU    #    #    #   DU    #    #    #   DU    #    #    #   DU    #    #   DU
+ DRU   LR   LR DLRU   LR   LR   LR DLRU   LR   LR   LR DLRU   LR   LR   LR DLRU   LR   LR  DLU
+   U    #    #    U    #    #    #    U    #    #    #    U    #    #    #    U    #    #    U

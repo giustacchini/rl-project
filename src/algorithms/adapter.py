@@ -52,6 +52,7 @@ class StepResult:
     truncated: bool  # episode ended because of the steps limit
     alive: np.ndarray  # [A] 1.0 if the agent produced an observation
     info: dict = field(default_factory=dict)
+    mask: np.ndarray | None = None  # [A, n_actions] bool, True = action is legal (all True if the env has no masks)
 
     @property
     def done(self) -> bool:
@@ -102,9 +103,12 @@ class ParallelEnvAdapter:
 
         self.obs_dim: int | None = None
         self.state_dim: int | None = None
+        # Action mask of the latest observation, [A, n_actions] bool. If an observation contains an
+        # "action_mask" entry (see shared/observations.py) it is used; otherwise every action is legal.
+        self.mask = np.ones((self.n_agents, self.n_actions), dtype=bool)
 
     # ------------------------------------------------------------------ utils
-    def _encode(self, obs_dict: dict) -> tuple[np.ndarray, np.ndarray]:
+    def _encode(self, obs_dict: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         encoded = {a: self.obs_encoder(obs_dict[a]) for a in self.agent_ids if a in obs_dict}
         if self.obs_dim is None:
             self.obs_dim = len(next(iter(encoded.values())))
@@ -114,6 +118,10 @@ class ParallelEnvAdapter:
             if a in encoded:
                 obs[i] = encoded[a]
                 alive[i] = 1.0
+        self.mask = np.ones((self.n_agents, self.n_actions), dtype=bool)
+        for i, a in enumerate(self.agent_ids):
+            if a in obs_dict and isinstance(obs_dict[a], dict) and "action_mask" in obs_dict[a]:
+                self.mask[i] = np.asarray(obs_dict[a]["action_mask"], dtype=bool)
         if self.state_fn is not None:
             state = np.asarray(self.state_fn(self.env, obs_dict), dtype=np.float32).ravel()
         elif hasattr(self.env, "state") and callable(self.env.state):
@@ -140,4 +148,12 @@ class ParallelEnvAdapter:
         truncated = any(trunc.get(a, False) for a in self.agent_ids)
         if hasattr(self.env, "agents") and len(self.env.agents) == 0:
             terminated = terminated or not truncated
-        return StepResult(obs, state, reward, terminated, truncated, alive, info if isinstance(info, dict) else {})
+        # `info` is {agent_id: dict} in PettingZoo style. Learners get a flat dict: the info of the first
+        # agent plus "positions" (used by the local-cooperation reward shaping) and the episode metrics.
+        flat: dict = {}
+        if isinstance(info, dict) and info:
+            first = next(iter(info.values()))
+            flat = dict(first) if isinstance(first, dict) else dict(info)
+        if hasattr(self.env, "agent_positions"):
+            flat["positions"] = np.asarray(self.env.agent_positions(), dtype=np.float32)
+        return StepResult(obs, state, reward, terminated, truncated, alive, flat, self.mask.copy())

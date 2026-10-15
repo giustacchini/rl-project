@@ -52,8 +52,3 @@ def ascii_grid(env) -> str:
         rows[y][x] = str(agent.index)
 
     return "\n".join("".join(row) for row in rows)
-
-
-def print_grid(env) -> None:
-    print(ascii_grid(env))
-    print(f"step={getattr(env, 'step_count', '?')}")

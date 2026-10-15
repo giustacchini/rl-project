@@ -1,9 +1,8 @@
-"""PPO, MAPPO and IPPO in one implementation.
+"""PPO and MAPPO in one implementation.
 
-One trainer, three flavours -- they only differ in what the *critic* sees:
+One trainer, two flavours -- they only differ in what the *critic* sees:
 
     PPO     1 agent, critic sees its own observation.
-    IPPO    N agents, parameter-shared actor, each critic sees its own observation.
     MAPPO   N agents, parameter-shared actor, ONE centralised critic that sees the
             global state (Yu et al., "The Surprising Effectiveness of PPO in
             Cooperative Multi-Agent Games"). Actors only use local observations,
@@ -12,6 +11,10 @@ One trainer, three flavours -- they only differ in what the *critic* sees:
 Partial observability (Experiments 2 and 4): set `PPOConfig(recurrent=True)` and
 actor and critic get a GRU. Sequences are trained with truncated BPTT over
 `rollout_len` steps; hidden states are reset at episode boundaries.
+
+Action masking: if the environment reports which actions are legal (the adapter's `mask`,
+[A, n_actions] bool), illegal actions get logit -1e9 before sampling. The agent therefore never
+samples an illegal move, and the policy gradient only acts on the legal ones.
 
 Discrete actions only (the grid environments use 4-5 moves).
 """
@@ -50,6 +53,7 @@ class PPOConfig:
     agent_id: bool = True  # append one-hot agent id (needed for a shared actor to specialise)
     reward_mode: str = "individual"  # "individual" | "team_sum" | "team_mean"
     activation: str = "tanh"  # "tanh" (PPO default) or "relu" (MAPPO-LCR paper)
+    reward_scale: float = 1.0  # training rewards are multiplied by this (keeps value targets small when returns are in the 100s)
     seed: int = 0
     device: str = "cpu"
 
@@ -167,10 +171,11 @@ class _PPOBase:
 
     # ---------------------------------------------------------------- helpers
     def _reset_all(self, first: bool = False) -> None:
-        obs, state, alive = [], [], []
+        obs, state, alive, mask = [], [], [], []
         for e, env in enumerate(self.envs):
             o, s, al = env.reset(seed=int(self.rng.integers(0, 2**31 - 1)))
-            obs.append(o), state.append(s), alive.append(al)
+            obs.append(o), state.append(s), alive.append(al), mask.append(env.mask.copy())
+        self.mask = np.stack(mask)  # [E,A,n_actions] bool, legal actions
         self.obs = np.stack(obs)  # [E,A,D]
         self.state = np.stack(state)  # [E,S]
         self.alive = np.stack(alive)  # [E,A]
@@ -194,6 +199,11 @@ class _PPOBase:
             x = torch.cat([x, self._ids(self.N, self.E)], dim=-1)
         return x
 
+    @staticmethod
+    def _mask_logits(logits: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        """Give illegal actions (mask False) a huge negative logit so they get probability ~0."""
+        return logits.masked_fill(~mask, -1e9)
+
     def _team_reward(self, r: np.ndarray) -> np.ndarray:
         mode = self.cfg.reward_mode
         if mode == "individual":
@@ -205,7 +215,7 @@ class _PPOBase:
     @torch.no_grad()
     def _collect(self) -> dict[str, torch.Tensor]:
         T, N = self.cfg.rollout_len, self.N
-        buf = {k: [] for k in ("actor_in", "critic_in", "act", "logp", "val", "rew", "term", "first", "alive")}
+        buf = {k: [] for k in ("actor_in", "critic_in", "act", "logp", "val", "rew", "term", "first", "alive", "mask")}
         h_a0, h_c0 = self.h_a.clone(), self.h_c.clone()
 
         for _ in range(T):
@@ -213,7 +223,8 @@ class _PPOBase:
             first = self.first
             logits, self.h_a = self.model.actor(a_in[None], self.h_a, first[None])
             value, self.h_c = self.model.critic(c_in[None], self.h_c, first[None])
-            dist = Categorical(logits=logits[0])
+            mask_t = torch.as_tensor(self.mask.reshape(N, -1), dtype=torch.bool, device=self.dev)
+            dist = Categorical(logits=self._mask_logits(logits[0], mask_t))
             act = dist.sample()
             logp = dist.log_prob(act)
 
@@ -221,7 +232,7 @@ class _PPOBase:
             rew = np.zeros((self.E, self.A), dtype=np.float32)
             done = np.zeros(self.E, dtype=bool)
             trunc_only = np.zeros(self.E, dtype=bool)
-            next_obs, next_state, next_alive = [None] * self.E, [None] * self.E, [None] * self.E
+            next_obs, next_state, next_alive, next_mask = [None] * self.E, [None] * self.E, [None] * self.E, [None] * self.E
             for e, env in enumerate(self.envs):
                 res = env.step(act_np[e])
                 r = res.reward
@@ -229,10 +240,10 @@ class _PPOBase:
                     r = self.reward_transform(r, res.info)
                 self.ep_return[e] += float(np.sum(res.reward))  # report the *raw* reward
                 self.ep_len[e] += 1
-                rew[e] = self._team_reward(r)
+                rew[e] = self._team_reward(r) * self.cfg.reward_scale  # evaluation/reporting always use the raw reward
                 done[e] = res.done
                 trunc_only[e] = res.truncated and not res.terminated
-                next_obs[e], next_state[e], next_alive[e] = res.obs, res.state, res.alive
+                next_obs[e], next_state[e], next_alive[e], next_mask[e] = res.obs, res.state, res.alive, res.mask
             self.env_steps += self.E
 
             # time-limit truncation is not a real terminal state: bootstrap from V(s')
@@ -245,6 +256,7 @@ class _PPOBase:
             buf["rew"].append(torch.as_tensor(rew.reshape(N), device=self.dev))
             buf["term"].append(torch.as_tensor(np.repeat(done, self.A).astype(np.float32), device=self.dev))
             buf["first"].append(first)
+            buf["mask"].append(mask_t)
             buf["alive"].append(torch.as_tensor(self.alive.reshape(N), dtype=torch.float32, device=self.dev))
 
             for e in range(self.E):
@@ -253,8 +265,9 @@ class _PPOBase:
                     self.finished_lengths.append(int(self.ep_len[e]))
                     self.ep_return[e], self.ep_len[e] = 0.0, 0
                     o, s, al = self.envs[e].reset(seed=int(self.rng.integers(0, 2**31 - 1)))
-                    next_obs[e], next_state[e], next_alive[e] = o, s, al
+                    next_obs[e], next_state[e], next_alive[e], next_mask[e] = o, s, al, self.envs[e].mask.copy()
             self.obs, self.state, self.alive = np.stack(next_obs), np.stack(next_state), np.stack(next_alive)
+            self.mask = np.stack(next_mask)
             self.first = torch.as_tensor(np.repeat(done, self.A).astype(np.float32), device=self.dev)
 
         last_v = self._peek_value(self.obs, self.state, update_first=True)
@@ -288,7 +301,7 @@ class _PPOBase:
                     continue
                 logits, _ = self.model.actor(d["actor_in"][:, idx], d["h_a0"][idx], d["first"][:, idx])
                 values, _ = self.model.critic(d["critic_in"][:, idx], d["h_c0"][idx], d["first"][:, idx])
-                dist = Categorical(logits=logits)
+                dist = Categorical(logits=self._mask_logits(logits, d["mask"][:, idx]))
                 new_logp = dist.log_prob(d["act"][:, idx])
                 entropy = dist.entropy()
                 w = d["alive"][:, idx]
@@ -351,7 +364,27 @@ class _PPOBase:
                 )
         return history
 
-    @torch.no_grad()
+    def make_policy(self, deterministic: bool = False):
+        """Return `act(obs[A,D], mask[A,n], new_episode=False) -> int array [A]` for running the trained policy.
+
+        The closure keeps the GRU hidden state (when recurrent); pass new_episode=True on the first
+        step of every episode. Actions are sampled from the masked policy (or argmax if deterministic).
+        """
+        h = {"a": torch.zeros(self.A, self.cfg.hidden, device=self.dev)}
+
+        def act(obs: np.ndarray, mask: np.ndarray, new_episode: bool = False) -> np.ndarray:
+            with torch.no_grad():
+                x = torch.as_tensor(obs, dtype=torch.float32, device=self.dev)
+                if self.use_id:
+                    x = torch.cat([x, torch.eye(self.A, device=self.dev)], dim=-1)
+                first = torch.full((self.A,), 1.0 if new_episode else 0.0, device=self.dev)
+                logits, h["a"] = self.model.actor(x[None], h["a"], first[None])
+                logits = self._mask_logits(logits[0], torch.as_tensor(mask, dtype=torch.bool, device=self.dev))
+                a = logits.argmax(-1) if deterministic else Categorical(logits=logits).sample()
+                return a.cpu().numpy()
+
+        return act
+
     def evaluate(self, n_episodes: int = 10, deterministic: bool = False, seed: int = 12345) -> dict[str, float]:
         """Run the current policy on fresh envs. Returns mean/std of the raw team return.
 
@@ -361,20 +394,14 @@ class _PPOBase:
         """
         env = ParallelEnvAdapter(self.env_fn(), **self.adapter_kwargs)
         rng = np.random.default_rng(seed)
+        act = self.make_policy(deterministic)
         returns, lengths = [], []
         for _ in range(n_episodes):
             obs, state, _ = env.reset(seed=int(rng.integers(0, 2**31 - 1)))
-            h_a = torch.zeros(self.A, self.cfg.hidden, device=self.dev)
-            first = torch.ones(self.A, device=self.dev)
-            total, steps, done = 0.0, 0, False
+            new_episode, total, steps, done = True, 0.0, 0, False
             while not done:
-                x = torch.as_tensor(obs, dtype=torch.float32, device=self.dev)
-                if self.use_id:
-                    x = torch.cat([x, torch.eye(self.A, device=self.dev)], dim=-1)
-                logits, h_a = self.model.actor(x[None], h_a, first[None])
-                act = logits[0].argmax(-1) if deterministic else Categorical(logits=logits[0]).sample()
-                res = env.step(act.cpu().numpy())
-                obs, first = res.obs, torch.zeros(self.A, device=self.dev)
+                res = env.step(act(obs, env.mask, new_episode))
+                obs, new_episode = res.obs, False
                 total += float(res.reward.sum())
                 steps += 1
                 done = res.done
@@ -398,13 +425,7 @@ class PPO(_PPOBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.A != 1:
-            raise ValueError(f"PPO is single-agent but the env has {self.A} agents; use IPPO or MAPPO.")
-
-
-class IPPO(_PPOBase):
-    """Independent PPO: shared actor, per-agent critic on its own observation. Baseline."""
-
-    centralized_critic = False
+            raise ValueError(f"PPO is single-agent but the env has {self.A} agents; use MAPPO.")
 
 
 class MAPPO(_PPOBase):

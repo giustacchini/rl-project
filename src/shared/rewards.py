@@ -21,6 +21,23 @@ class RewardResult:
     team_of_agent: dict[AgentID, int | None]
     shared_by_team: dict[int | None, float] = field(default_factory=dict)
 
+    def per_agent(self) -> dict[AgentID, float]:
+        """The reward each agent actually receives.
+
+        individual reward + an equal share of its team's shared reward. With this
+        split, the sum of all agents' rewards in a team equals `team_total`, so a
+        team reward is never counted N times when the learner adds agents up.
+        """
+        team_size: dict[int | None, int] = {}
+        for team_id in self.team_of_agent.values():
+            team_size[team_id] = team_size.get(team_id, 0) + 1
+        return {
+            agent_id: reward
+            + self.shared_by_team.get(self.team_of_agent.get(agent_id), 0.0)
+            / team_size.get(self.team_of_agent.get(agent_id), 1)
+            for agent_id, reward in self.individual.items()
+        }
+
     def team_total(self, team_id: int | None) -> float:
         """Cumulative reward for a team: sum of individual rewards + shared."""
         members = sum(
