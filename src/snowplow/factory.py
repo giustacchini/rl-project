@@ -13,7 +13,7 @@ from Enums import ACTIONS
 from snowplow.config import SnowConfig, SnowplowConfig
 from snowplow.encoding import encode_observation
 from snowplow.env import SnowPlowEnv
-from snowplow.maps import MAPS
+from snowplow.road_network_configs import MAPS
 
 
 def make_env(map_name: str, config: SnowplowConfig, render_mode: str | None = None, render_fps: int = 20) -> SnowPlowEnv:

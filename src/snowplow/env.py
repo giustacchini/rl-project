@@ -54,9 +54,9 @@ from snowplow import road_map as rm
 from snowplow.cell import GridCell
 from snowplow.config import SnowplowConfig
 from snowplow.encoding import encode_state
-from snowplow.maps import road_network_1
 from snowplow.rewards import make_snowplow_reward_calculator
 from snowplow.road_map import RoadMap
+from snowplow.road_network_configs import road_network_1
 from snowplow.snow import SnowField
 
 # Channels of the observable grid, in order (see get_observable_grid).
@@ -77,8 +77,8 @@ class SnowPlowEnv(MultiGridEnv):
         road_network: dict | None = None,
         config: SnowplowConfig | None = None,
         render_mode: str | None = None,
-        screen_size: int = 900,
-        render_fps: int = 20
+        screen_size: int = 500,
+        render_fps: int = 20,
     ):
         self.metadata["render_fps"] = render_fps
         self.config = config or SnowplowConfig()
@@ -88,9 +88,7 @@ class SnowPlowEnv(MultiGridEnv):
         self.metrics = EpisodeMetrics()
         self.reward_calculator = make_snowplow_reward_calculator()
         self.observation_provider = (
-            FullObservationProvider()
-            if self.config.observation == "full"
-            else LocalObservationProvider(self.config.view_size)
+            FullObservationProvider() if self.config.observation == "full" else LocalObservationProvider(self.config.view_size)
         )
         self.last_movement_results: dict = {}
         self._finished = False
@@ -99,9 +97,13 @@ class SnowPlowEnv(MultiGridEnv):
         codes = self.road_map.codes
         self._static_channels = np.stack(
             [codes == code for code in (rm.OBSTACLE, rm.ROAD, rm.HIGHWAY, rm.INTERSECTION)]
-            + [self.road_map.allowed[..., ACTIONS.index(move)] for move in (
-                MovementActions.UP, MovementActions.DOWN, MovementActions.RIGHT, MovementActions.LEFT)]
-        ).astype(np.float32)  # [8, H, W]
+            + [
+                self.road_map.allowed[..., ACTIONS.index(move)]
+                for move in (MovementActions.UP, MovementActions.DOWN, MovementActions.RIGHT, MovementActions.LEFT)
+            ]
+        ).astype(
+            np.float32
+        )  # [8, H, W]
 
         super().__init__(
             mission_space="clear the snow from every road",
@@ -174,8 +176,7 @@ class SnowPlowEnv(MultiGridEnv):
         free = [
             (int(x), int(y))
             for y, x in np.argwhere(self.road_map.passable)
-            if not np.all(self.agent_states.pos == (x, y), axis=1).any()
-            and not (reject_fn and reject_fn(self, (int(x), int(y))))
+            if not np.all(self.agent_states.pos == (x, y), axis=1).any() and not (reject_fn and reject_fn(self, (int(x), int(y))))
         ]
         if not free:
             raise RuntimeError("no free drivable cell left to place a plow")
@@ -319,8 +320,9 @@ class SnowPlowEnv(MultiGridEnv):
             )
             # Draw the plow facing the way it drove.
             if status == "moved":
-                self.agents[agent_id].state.dir = _FACING[MovementActions(tuple(
-                    int(b) - int(a) for a, b in zip(result["current_position"], result["resolved_position"])))]
+                self.agents[agent_id].state.dir = _FACING[
+                    MovementActions(tuple(int(b) - int(a) for a, b in zip(result["current_position"], result["resolved_position"])))
+                ]
 
     def _plow_snow(self, results: dict) -> None:
         """Stage 6: every plow that moved onto a cell removes up to `clear_per_pass` layers there.
@@ -338,9 +340,7 @@ class SnowPlowEnv(MultiGridEnv):
                 self.metrics.add("repeated_work")  # drove onto a cell that was already clean
                 continue
             self.metrics.add("snow_cleared", removed)
-            self.event_log.emit(
-                SnowplowEvent.PARTIALLY_CLEARED, agent_id=agent_id, step=self.step_count, position=(x, y), removed=removed
-            )
+            self.event_log.emit(SnowplowEvent.PARTIALLY_CLEARED, agent_id=agent_id, step=self.step_count, position=(x, y), removed=removed)
             street = int(self.road_map.street_id[y, x])
             contributors.setdefault(street, []).append(agent_id)
 

@@ -3,8 +3,8 @@
 import numpy as np
 
 from snowplow.config import SnowConfig
-from snowplow.maps import road_network_1
 from snowplow.road_map import RoadMap
+from snowplow.road_network_configs import road_network_1
 from snowplow.snow import Cloud, SnowField
 
 ROAD_MAP = RoadMap.from_config(road_network_1)

@@ -6,7 +6,7 @@ from snowplow.config import SnowplowConfig
 from snowplow.encoding import encode_observation
 from snowplow.env import GRID_CHANNELS, SnowPlowEnv
 from snowplow.evaluation import run_policy, summarize
-from snowplow.maps import MAPS
+from snowplow.road_network_configs import MAPS
 
 
 def test_full_observation_vector_layout(make_env):

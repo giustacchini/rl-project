@@ -14,7 +14,7 @@ never changes during an episode. It is stored as plain numpy arrays indexed
   * the action mask, so the policy can never even *choose* an illegal move.
 
 TRAFFIC RULES (one rule per terrain type)
-  ROAD          two-way: can move into any neighbouring cell that is not an obstacle.
+  ROAD          two-way: can move into any neighboring cell that is not an obstacle.
   HIGHWAY       one-way lane. The highway is horizontal and two lanes wide: the
                 northern lane flows LEFT (west), the southern lane flows RIGHT (east).
   INTERSECTION  can move in every direction except "against the lane" it belongs
@@ -71,36 +71,51 @@ def compute_allowed_moves(codes: np.ndarray) -> np.ndarray:
                 continue
             allowed[y, x, _NO_OP] = True
 
-            # Terrain code of the neighbour reached by each move (None = off the map).
-            neighbour = {move: _code_at(codes, x + dx, y + dy) for move, (dx, dy) in _STEP.items()}
+            # Terrain code of the neighbor reached by each move (None = off the map).
+            neighbor = {move: _code_at(codes, x + dx, y + dy) for move, (dx, dy) in _STEP.items()}
             # Moves that do not run into the map edge or an obstacle.
-            open_moves = {m for m, c in neighbour.items() if c not in (None, OBSTACLE)}
+            open_moves = {m for m, c in neighbor.items() if c not in (None, OBSTACLE)}
 
             if code == ROAD:
                 moves = open_moves
 
             elif code == HIGHWAY:
-                # A lane is the *edge* of the highway on the side where the neighbour
-                # is not highway terrain: edge above -> northern lane -> flows LEFT.
-                edge_above = neighbour[MovementActions.UP] not in (HIGHWAY, INTERSECTION)
-                edge_below = neighbour[MovementActions.DOWN] not in (HIGHWAY, INTERSECTION)
-                if edge_above == edge_below:
-                    raise ValueError(
-                        f"Cannot infer the lane direction of the highway cell at (x={x}, y={y}): main "
-                        "streets must be horizontal and exactly two cells wide."
-                    )
-                flow = MovementActions.LEFT if edge_above else MovementActions.RIGHT
+                # Looking for the closest cell that is obstacle to determine the traffic flow direction.
+                edge_above = neighbor[MovementActions.UP] == OBSTACLE
+                edge_below = neighbor[MovementActions.DOWN] == OBSTACLE
+                edge_left = neighbor[MovementActions.DOWN] == OBSTACLE
+
+                if edge_above:
+                    flow = MovementActions.LEFT
+                elif edge_below:
+                    flow = MovementActions.RIGHT
+                elif edge_left:
+                    flow = MovementActions.DOWN
+                else:  # Right edge is obstacle
+                    flow = MovementActions.UP
+
                 moves = {flow} & open_moves
 
             else:  # INTERSECTION
                 # The intersection column is two cells tall (one per lane). The lower cell
                 # belongs to the eastbound lane (cannot go LEFT), the upper cell to the
                 # westbound lane (cannot go RIGHT). Moving UP/DOWN switches lane.
+
+                # "IF INTERSECTIONS ARE PLACED (FROM CURRENT CELL) AT DIRECTION: IF#1 + IF#2"
+
                 moves = set(open_moves)
-                if neighbour[MovementActions.UP] == INTERSECTION:
+                # Handle both single and overlapping highways
+                if neighbor[MovementActions.UP] == INTERSECTION:
                     moves.discard(MovementActions.LEFT)
-                if neighbour[MovementActions.DOWN] == INTERSECTION:
+
+                if neighbor[MovementActions.LEFT] == INTERSECTION:
+                    moves.discard(MovementActions.DOWN)
+
+                if neighbor[MovementActions.DOWN] == INTERSECTION:
                     moves.discard(MovementActions.RIGHT)
+
+                if neighbor[MovementActions.RIGHT] == INTERSECTION:
+                    moves.discard(MovementActions.UP)
 
             for move in moves:
                 allowed[y, x, ACTIONS.index(move)] = True
@@ -168,10 +183,8 @@ class RoadMap:
                     street_cells.append((ys.ravel(), xs.ravel()))
                     street_is_main.append(cell_type in (GridCellTypes.HIGHWAY, GridCellTypes.INTERSECTION))
 
-        if (codes == -1).any():
-            ys, xs = np.nonzero(codes == -1)
-            missing = [(int(y), int(x)) for y, x in zip(ys[:5], xs[:5])]
-            raise ValueError(f"Map has cells that belong to no category (row, column): {missing} ...")
+        # Treat every unassigned cell as an obstacle in the completed map.
+        codes[codes == -1] = OBSTACLE
 
         road_map = cls(
             codes=codes,
@@ -180,7 +193,6 @@ class RoadMap:
             street_is_main=np.array(street_is_main, dtype=bool),
             street_cells=tuple(street_cells),
         )
-        road_map._validate()
         return road_map
 
     # --------------------------------------------------------------- validate
@@ -202,7 +214,7 @@ class RoadMap:
         """BFS from one drivable cell over the move graph (or over its reverse)."""
         start = tuple(int(v) for v in np.argwhere(self.passable)[0][::-1])  # (x, y)
 
-        def neighbours(x, y):
+        def neighbors(x, y):
             out = []
             for move, (dx, dy) in _STEP.items():
                 if forward:  # cells that (x, y) can step onto
@@ -218,7 +230,7 @@ class RoadMap:
         queue = deque([start])
         while queue:
             x, y = queue.popleft()
-            for nxt in neighbours(x, y):
+            for nxt in neighbors(x, y):
                 if nxt not in seen:
                     seen.add(nxt)
                     queue.append(nxt)

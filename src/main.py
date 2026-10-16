@@ -21,8 +21,14 @@ from snowplow.baselines import GreedyPolicy, RandomPolicy
 from snowplow.config import SnowConfig, SnowplowConfig
 from snowplow.evaluation import run_policy, run_trainer, summarize
 from snowplow.experiments import EXPERIMENTS
-from snowplow.factory import adapter_kwargs, config_from_dict, config_to_dict, make_env, make_env_fn
-from snowplow.maps import MAPS
+from snowplow.factory import (
+    adapter_kwargs,
+    config_from_dict,
+    config_to_dict,
+    make_env,
+    make_env_fn,
+)
+from snowplow.road_network_configs import MAPS
 
 
 # ----------------------------------------------------------------------------- arguments
@@ -74,7 +80,12 @@ def cmd_baselines(args) -> None:
 
 
 def cmd_train(args) -> None:
-    from algorithms import MAPPO, PPO, PPOConfig, plow_progress_lcr  # imported here: needs torch
+    from algorithms import (  # imported here: needs torch
+        MAPPO,
+        PPO,
+        PPOConfig,
+        plow_progress_lcr,
+    )
 
     config = build_config(args)
     preset = EXPERIMENTS.get(args.experiment, {})
@@ -82,8 +93,14 @@ def cmd_train(args) -> None:
     recurrent = args.recurrent or preset.get("recurrent", False)
     reward_mode = args.reward_mode or ("individual" if algo == "ppo" else "team_mean")
     ppo_config = PPOConfig(
-        n_envs=args.n_envs, rollout_len=args.rollout_len, lr=args.lr, hidden=args.hidden,
-        recurrent=recurrent, reward_mode=reward_mode, reward_scale=args.reward_scale, seed=args.seed,
+        n_envs=args.n_envs,
+        rollout_len=args.rollout_len,
+        lr=args.lr,
+        hidden=args.hidden,
+        recurrent=recurrent,
+        reward_mode=reward_mode,
+        reward_scale=args.reward_scale,
+        seed=args.seed,
     )
     run_dir = Path(args.out or f"runs/{args.experiment or 'custom'}_{args.map}_{algo}_s{args.seed}")
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -92,15 +109,26 @@ def cmd_train(args) -> None:
     trainer = {"ppo": PPO, "mappo": MAPPO}[algo](
         make_env_fn(args.map, config), ppo_config, adapter_kwargs(config), reward_transform=reward_transform
     )
-    print(f"training {algo} on map '{args.map}': {config.n_plows} plow(s), obs={config.observation}, "
-          f"obs_dim={trainer.obs_dim}, recurrent={recurrent} -> {run_dir}")
+    print(
+        f"training {algo} on map '{args.map}': {config.n_plows} plow(s), obs={config.observation}, "
+        f"obs_dim={trainer.obs_dim}, recurrent={recurrent} -> {run_dir}"
+    )
 
     from dataclasses import asdict
 
-    (run_dir / "config.json").write_text(json.dumps({
-        "map": args.map, "algo": algo, "snowplow": config_to_dict(config), "ppo": asdict(ppo_config),
-        "steps": args.steps, "lcr_zeta": args.lcr_zeta,
-    }, indent=1))
+    (run_dir / "config.json").write_text(
+        json.dumps(
+            {
+                "map": args.map,
+                "algo": algo,
+                "snowplow": config_to_dict(config),
+                "ppo": asdict(ppo_config),
+                "steps": args.steps,
+                "lcr_zeta": args.lcr_zeta,
+            },
+            indent=1,
+        )
+    )
     history = trainer.learn(args.steps, log_every=args.log_every)
     trainer.save(str(run_dir / "model.pt"))
     (run_dir / "history.json").write_text(json.dumps(history, indent=1))
@@ -182,8 +210,16 @@ def cmd_play(args) -> None:
 
 # ------------------------------------------------------------------------------- output
 def print_table(rows: dict[str, dict]) -> None:
-    keys = ["success_rate", "total_reward", "steps", "fraction_clean", "snow_cleared", "repeated_work",
-            "events/invalid_move", "events/agent_collision"]
+    keys = [
+        "success_rate",
+        "total_reward",
+        "steps",
+        "fraction_clean",
+        "snow_cleared",
+        "repeated_work",
+        "events/invalid_move",
+        "events/agent_collision",
+    ]
     print(f"{'policy':10s}" + "".join(f"{k.split('/')[-1][:14]:>15s}" for k in keys))
     for name, row in rows.items():
         print(f"{name:10s}" + "".join(f"{row[k]:15.2f}" for k in keys))
