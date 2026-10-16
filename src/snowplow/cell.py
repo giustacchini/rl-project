@@ -32,7 +32,7 @@ for _name, _rgb in _TERRAIN_COLOURS.values():
 
 # How strongly white snow is blended over the road colour, per snow level 0..3.
 _SNOW_ALPHA = (0.0, 0.45, 0.75, 1.0)
-_CLOUD_TINT = (40, 50, 90)  # dark blue overlay for cells under a (hidden) cloud
+_CLOUD_TINT = (251, 224, 43)  # dark blue overlay for cells under a (hidden) cloud
 _CLOUD_ALPHA = 0.35
 
 
