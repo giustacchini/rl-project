@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 
 from Enums import ACTIONS, MovementActions
-from snowplow.maps import MAPS, road_network_1
 from snowplow.road_map import HIGHWAY, INTERSECTION, OBSTACLE, ROAD, RoadMap
+from snowplow.road_network_configs import MAPS, road_network_1
 
 LETTER = {MovementActions.UP: "U", MovementActions.DOWN: "D", MovementActions.LEFT: "L", MovementActions.RIGHT: "R"}
 
@@ -109,7 +109,9 @@ def test_invalid_maps_are_rejected():
     split = {
         "size": (3, 3),
         "roads": [{"position": (0, 0), "size": (3, 1)}, {"position": (0, 2), "size": (3, 1)}],
-        "highways": [], "intersections": [], "obstacles": [{"position": (0, 1), "size": (3, 1)}],
+        "highways": [],
+        "intersections": [],
+        "obstacles": [{"position": (0, 1), "size": (3, 1)}],
     }
     with pytest.raises(ValueError, match="not strongly connected"):
         RoadMap.from_config(split)

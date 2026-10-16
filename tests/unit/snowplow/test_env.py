@@ -2,17 +2,21 @@
 
 import numpy as np
 import pytest
+from conftest import place, set_snow
 
 from Enums import ACTIONS, EventType, MovementActions, SnowplowEvent
 from snowplow.config import SnowConfig, SnowplowConfig
 from snowplow.env import GRID_CHANNELS, SnowPlowEnv
-from snowplow.maps import MAPS, road_network_1, road_network_small
+from snowplow.road_network_configs import MAPS, road_network_1, road_network_small
 from snowplow.snow import Cloud
 
-from conftest import place, set_snow
-
-UP, DOWN, RIGHT, LEFT, WAIT = (MovementActions.UP, MovementActions.DOWN, MovementActions.RIGHT,
-                               MovementActions.LEFT, MovementActions.DO_NOTHING)
+UP, DOWN, RIGHT, LEFT, WAIT = (
+    MovementActions.UP,
+    MovementActions.DOWN,
+    MovementActions.RIGHT,
+    MovementActions.LEFT,
+    MovementActions.DO_NOTHING,
+)
 
 
 def pos(env, i=0):
@@ -165,8 +169,11 @@ def test_a_waiting_plow_does_not_clear_snow(make_env):
 
 def test_secondary_street_reward():
     two_streets = {  # street A = the top row, street B = the two lower rows
-        "size": (3, 3), "roads": [{"position": (0, 0), "size": (1, 3)}, {"position": (1, 0), "size": (2, 3)}],
-        "highways": [], "intersections": [], "obstacles": [],
+        "size": (3, 3),
+        "roads": [{"position": (0, 0), "size": (1, 3)}, {"position": (1, 0), "size": (2, 3)}],
+        "highways": [],
+        "intersections": [],
+        "obstacles": [],
     }
     env = SnowPlowEnv(two_streets, SnowplowConfig(snow=SnowConfig(initial_clouds=0, cloud_spawn_prob=0)))
     env.reset(seed=0)
