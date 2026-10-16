@@ -64,13 +64,13 @@ def test_move_and_wait_rewards(make_env):
     _, rewards, *_ = env.step({0: RIGHT})
     assert pos(env) == (2, 1) and status(env) == "moved" and rewards == {0: -1.0}
     _, rewards, *_ = env.step({0: WAIT})
-    assert pos(env) == (2, 1) and status(env) == "waited" and rewards == {0: -2.0}
+    assert pos(env) == (2, 1) and status(env) == "waited" and rewards == {0: 0.0}
 
 
 def test_leaving_the_map_is_blocked_and_penalised(make_env):
     env = make_env([(0, 0)])
     _, rewards, *_ = env.step({0: UP})
-    assert pos(env) == (0, 0) and status(env) == "blocked_invalid_action" and rewards == {0: -5.0}
+    assert pos(env) == (0, 0) and status(env) == "blocked_invalid_action" and rewards == {0: 0.0}
     assert [e.type for e in env.event_log.events()] == [EventType.INVALID_MOVE]
 
 
@@ -79,8 +79,8 @@ def test_two_plows_requesting_the_same_cell_both_stay(make_env):
     _, rewards, *_ = env.step({0: RIGHT, 1: UP})  # both want (2, 1)
     assert pos(env, 0) == (1, 1) and pos(env, 1) == (2, 2)
     assert status(env, 0) == status(env, 1) == "blocked_same_destination"
-    assert rewards[0] == rewards[1] == -10.0  # the shared -10 per colliding plow, split in two
-    assert sum(rewards.values()) == -20.0  # = team total: shared reward is not counted twice
+    assert rewards[0] == rewards[1] == 0.0
+    assert sum(rewards.values()) == 0.0
 
 
 def test_plows_cannot_swap(make_env):

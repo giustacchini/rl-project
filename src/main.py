@@ -222,6 +222,7 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--deterministic", action="store_true", help="model: take the most likely action")
     p.add_argument("--render-fps", type=int, default=20, dest="render_fps")
+    p.add_argument("--martin-likes-snow", action="store_true", help="Martin likes snow")
     p.set_defaults(func=cmd_play)
 
     p = sub.add_parser("train", help="train PPO (1 plow) or MAPPO (several plows)")

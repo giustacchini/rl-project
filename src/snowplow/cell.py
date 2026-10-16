@@ -32,7 +32,7 @@ for _name, _rgb in _TERRAIN_COLOURS.values():
 
 # How strongly white snow is blended over the road colour, per snow level 0..3.
 _SNOW_ALPHA = (0.0, 0.45, 0.75, 1.0)
-_CLOUD_TINT = (40, 50, 90)  # dark blue overlay for cells under a (hidden) cloud
+_CLOUD_TINT = (219, 184, 12)  # dark blue overlay for cells under a (hidden) cloud
 _CLOUD_ALPHA = 0.35
 
 
@@ -58,6 +58,6 @@ class GridCell(WorldObj):
         rgb = [float(v) for v in self.color.rgb()]
         alpha = _SNOW_ALPHA[snow]
         rgb = [c * (1 - alpha) + 255 * alpha for c in rgb]  # blend towards white
-        # if under_cloud:
-        #     rgb = [c * (1 - _CLOUD_ALPHA) + t * _CLOUD_ALPHA for c, t in zip(rgb, _CLOUD_TINT)]
+        if under_cloud:
+            rgb = [c * (1 - _CLOUD_ALPHA) + t * _CLOUD_ALPHA for c, t in zip(rgb, _CLOUD_TINT)]
         fill_coords(img, point_in_rect(0.031, 1, 0.031, 1), tuple(int(v) for v in rgb))

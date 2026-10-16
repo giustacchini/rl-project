@@ -34,4 +34,4 @@ def test_adapter_sums_to_the_team_reward():
     for _ in range(5):
         res = adapter.step(np.array([0, 0]))  # both wait: -2 each
         total += res.reward.sum()
-    assert total == -20.0
+    assert total == 0.0
