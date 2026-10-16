@@ -17,12 +17,12 @@ class SnowConfig:
     clear_per_pass: int = 2  # layers a plow removes from a cell it drives onto
 
     # Clouds: hidden from the agents, they only drop snow on the roads below them.
-    initial_clouds: int = 2  # clouds that have already snowed when the episode starts
-    cloud_spawn_prob: float = 0.02  # chance per step that a new cloud appears
+    initial_clouds: int = 10 # clouds that have already snowed when the episode starts
+    cloud_spawn_prob: float = 0.05  # chance per step that a new cloud appears
     cloud_min_size: int = 3  # bounding box of a cloud: between 3x3 ...
     cloud_max_size: int = 9  # ... and 9x9 cells (the blob shape is irregular)
-    cloud_min_lifetime: int = 2  # steps a cloud keeps snowing
-    cloud_max_lifetime: int = 4
+    cloud_min_lifetime: int = 1  # steps a cloud keeps snowing
+    cloud_max_lifetime: int = 1
     snow_per_step: int = 1  # layers added to each road cell under a cloud, per step
     storm_steps: int | None = None  # clouds only spawn during the first N steps (None = always)
 

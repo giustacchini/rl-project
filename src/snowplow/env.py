@@ -238,9 +238,13 @@ class SnowPlowEnv(MultiGridEnv):
         self.snow_field.snowfall_step(self.np_random, self.step_count)
 
         # 10a. success: the roads are clean (and some snow fell at some point, so it is not trivial)
-        success = self.snow_field.is_clean and self.snow_field.total_fallen > 0
-        if success:
-            self.event_log.emit(SnowplowEvent.ALL_CLEAN, step=self.step_count)
+        # success = self.snow_field.is_clean and self.snow_field.total_fallen > 0
+        # if success:
+        #     self.event_log.emit(SnowplowEvent.ALL_CLEAN, step=self.step_count)
+
+        ####We dont want episode termination by success only by maximun steps per episode
+        success = False
+        #########################
 
         # 9. rewards from this step's events (shared rewards are split equally between plows)
         events = self.event_log.events()
@@ -364,7 +368,7 @@ class SnowPlowEnv(MultiGridEnv):
         summary["snow_fallen"] = self.snow_field.total_fallen
         summary["snow_remaining"] = int(self.snow_field.snow.sum())
         summary["fraction_clean"] = self.snow_field.fraction_clean
-        summary["success"] = bool(self.snow_field.is_clean and self.snow_field.total_fallen > 0)
+        # summary["success"] = bool(self.snow_field.is_clean and self.snow_field.total_fallen > 0)
         return summary
 
     # ------------------------------------------------------------- rendering

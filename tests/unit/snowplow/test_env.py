@@ -199,15 +199,13 @@ def test_clouds_add_snow_but_are_invisible(make_env):
 
 
 # ------------------------------------------------------------ termination / reset
-def test_cleaning_everything_succeeds_with_shared_bonus(make_env):
+def test_cleaning_everything_does_not_terminate_before_max_steps(make_env):
     env = make_env([(1, 1)])
     set_snow(env, {(2, 1): 1})
     obs, rewards, terminated, truncated, info = env.step({0: RIGHT})
-    assert terminated == {0: True} and truncated == {0: False}
-    assert rewards[0] == -1 + 1 + 2 + 100  # move, partial, street (whole map = one street), all-clean
-    assert info[0]["episode"]["success"] is True
-    with pytest.raises(RuntimeError):
-        env.step({0: WAIT})  # must reset first
+    assert terminated == {0: False} and truncated == {0: False}
+    assert rewards[0] == -1 + 1 + 2  # move, partial, street (whole map = one street)
+    env.step({0: WAIT})  # episodes terminate only at max_steps
 
 
 def test_episode_truncates_at_max_steps(make_env):
@@ -216,7 +214,7 @@ def test_episode_truncates_at_max_steps(make_env):
     for t in range(5):
         _, _, terminated, truncated, info = env.step({0: WAIT})
         assert terminated[0] is False
-    assert truncated[0] is True and info[0]["episode"]["success"] is False and info[0]["episode"]["steps"] == 5
+    assert truncated[0] is True and info[0]["episode"]["steps"] == 5
 
 
 def test_no_snow_ever_does_not_count_as_success(make_env):
@@ -240,7 +238,7 @@ def test_metrics_are_reported(make_env):
     env.step({0: RIGHT}), env.step({0: RIGHT})  # second move goes onto a clean cell
     m = env.episode_metrics()
     assert m["steps"] == 2 and m["snow_cleared"] == 2 and m["repeated_work"] == 1
-    assert m["events/moved"] == 2 and 0 < m["fraction_clean"] < 1 and m["success"] is False
+    assert m["events/moved"] == 2 and 0 < m["fraction_clean"] < 1
 
 
 # ------------------------------------------------------------------ robustness
