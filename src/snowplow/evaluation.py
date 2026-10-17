@@ -14,6 +14,8 @@ SUMMARY_KEYS = (
     "total_reward", "steps", "success", "fraction_clean", "snow_cleared", "snow_fallen",
     "snow_remaining", "repeated_work", "events/invalid_move", "events/agent_collision",
     "main_streets_cleared", "secondary_streets_cleared",
+    # Cooperative plowing: how often the plows share the work (see SnowPlowEnv._plow_snow).
+    "cells_cleared", "cells_cleared_together", "cooperation_rate", "plowing_steps", "shared_cell_steps",
 )
 
 

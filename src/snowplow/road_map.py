@@ -83,7 +83,7 @@ def compute_allowed_moves(codes: np.ndarray) -> np.ndarray:
                 # Looking for the closest cell that is obstacle to determine the traffic flow direction.
                 edge_above = neighbor[MovementActions.UP] == OBSTACLE
                 edge_below = neighbor[MovementActions.DOWN] == OBSTACLE
-                edge_left = neighbor[MovementActions.DOWN] == OBSTACLE
+                edge_left = neighbor[MovementActions.LEFT] == OBSTACLE
 
                 if edge_above:
                     flow = MovementActions.LEFT

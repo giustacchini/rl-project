@@ -85,7 +85,9 @@ class EventRewardCalculator(RewardStrategy):
         shared_by_team: dict[int | None, float] = {}
 
         for event in events:
-            reward = self.reward_mapping.get(event.type, 0.0)
+            # An event may carry a "reward_scale" (e.g. snow layers removed, already divided
+            # between the plows that did the work); the default scale is 1.
+            reward = self.reward_mapping.get(event.type, 0.0) * float(event.data.get("reward_scale", 1.0))
 
             if event.type in self.shared_events:
                 team_id = event.team_id

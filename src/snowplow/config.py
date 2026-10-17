@@ -14,7 +14,17 @@ class SnowConfig:
     """How snow falls and how plows remove it."""
 
     max_snow: int = 3  # snow levels are 0 (clean) .. max_snow (heavy)
-    clear_per_pass: int = 2  # layers a plow removes from a cell it drives onto
+    # LEGACY: the old "drive over a cell and remove up to N layers" rule. Plowing is now
+    # time-based (see plow_time_single / plow_time_team below); this field is kept only so
+    # that config.json files of older training runs still load. It is not used anymore.
+    clear_per_pass: int = 2
+
+    # COOPERATIVE PLOWING. A plow standing on a snowy cell is busy: it cannot leave until the
+    # cell is completely clean. How many steps that takes depends on the snow level of the cell
+    # and on how many plows work on it together. Index = snow level (index 0 is unused, a clean
+    # cell needs no work). The step on which a plow arrives already counts as a working step.
+    plow_time_single: tuple[int, ...] = (0, 1, 5, 10)  # one plow alone on the cell
+    plow_time_team: tuple[int, ...] = (0, 1, 2, 3)  # two or more plows on the same cell
 
     # Clouds: hidden from the agents, they only drop snow on the roads below them.
     initial_clouds: int = 10 # clouds that have already snowed when the episode starts
@@ -35,6 +45,26 @@ class SnowConfig:
             raise ValueError("cloud_spawn_prob must be in [0, 1]")
         if self.max_snow < 1 or self.clear_per_pass < 1 or self.snow_per_step < 1:
             raise ValueError("max_snow, clear_per_pass and snow_per_step must be >= 1")
+        # config.json stores tuples as lists: turn them back into tuples so the config stays hashable.
+        object.__setattr__(self, "plow_time_single", tuple(int(t) for t in self.plow_time_single))
+        object.__setattr__(self, "plow_time_team", tuple(int(t) for t in self.plow_time_team))
+        for name in ("plow_time_single", "plow_time_team"):
+            times = getattr(self, name)
+            if len(times) != self.max_snow + 1:
+                raise ValueError(f"{name} needs one entry per snow level 0..max_snow ({self.max_snow + 1} values)")
+            if any(t < 1 for t in times[1:]):
+                raise ValueError(f"{name}: plowing a snowy cell takes at least 1 step")
+
+    def plow_time(self, snow_level: int, n_plows: int) -> int:
+        """Steps needed to fully clean a cell of `snow_level` when `n_plows` plows work on it together.
+
+        One plow uses `plow_time_single`; two or more plows use `plow_time_team`.
+        A clean cell (level 0) or a cell with nobody on it needs no work and returns 0.
+        """
+        if snow_level <= 0 or n_plows <= 0:
+            return 0
+        table = self.plow_time_single if n_plows == 1 else self.plow_time_team
+        return table[min(int(snow_level), self.max_snow)]
 
 
 @dataclass(frozen=True)
@@ -45,6 +75,9 @@ class SnowplowConfig:
     max_steps: int = 500  # episode is truncated after this many steps
     observation: str = "full"  # "full" (sees the whole map) or "local" (sees a window)
     view_size: int = 5  # window side for observation="local" (3 or 5)
+    # True: several plows may stand on the same cell (needed for cooperative plowing), so they
+    # never block each other. False: the old rules (same target / occupied cell / swap = blocked).
+    allow_shared_cells: bool = True
     snow: SnowConfig = field(default_factory=SnowConfig)
 
     def __post_init__(self):

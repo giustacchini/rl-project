@@ -5,7 +5,8 @@ place that knows how a snowplow observation is laid out, so changing what the
 agent sees means changing this file, not the algorithms.
 
 Actor input (per plow), concatenated:
-    grid           [C, h, w]  snow/3, terrain one-hot (4), allowed moves (4)  -> lane directions
+    grid           [C, h, w]  snow/3, terrain one-hot (4), allowed moves (4) -> lane directions,
+                              plowing progress (1)
     self map       [h, w]     1 on the cell where this plow is
     others map     [h, w]     1 on the cells of the other plows it can see
     action mask    [n_actions]  1 for every legal action
@@ -36,7 +37,13 @@ def encode_observation(obs: dict) -> np.ndarray:
     grid = np.asarray(obs["grid"], dtype=np.float32)
     shape = grid.shape[1:]
     origin = obs.get("view_origin", (0, 0))
-    others = [pos for agent_id, pos in obs["agent_positions"].items() if pos != tuple(obs["self_position"])]
+    # Other plows are recognised by their id, not their position: plows can share a cell, and a
+    # teammate on the same cell (= working together) must still show up in the "others" map.
+    self_id = obs.get("self_id")
+    if self_id is None:  # observations without an id: fall back to comparing positions
+        others = [pos for pos in obs["agent_positions"].values() if pos != tuple(obs["self_position"])]
+    else:
+        others = [pos for agent_id, pos in obs["agent_positions"].items() if agent_id != self_id]
     parts = [
         grid.ravel(),
         _position_map([obs["self_position"]], shape, origin).ravel(),

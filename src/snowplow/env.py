@@ -15,13 +15,19 @@ processed before anybody else, conflicts are resolved from the same starting sta
     3. compute intended movements     \\
     4. detect conflicts                } shared/movement.py (same code the soccer env will use)
     5. resolve movements              /
-    6. resolve interactions           plows that drove onto a cell clear up to 2 snow layers
+    6. resolve interactions           plows standing on snowy cells plow them (time-based, cooperative)
     7. update dynamic world state     clouds get older, expired clouds vanish
     8. trigger stochastic events      a new cloud may appear; every cloud snows on the roads below
     9. calculate rewards              from the events of this step
    10. check termination/truncation   success = every road clean; truncation = max_steps
    11. generate observations
    12. return (obs, rewards, terminated, truncated, info), each a dict {plow_id: value}
+
+COOPERATIVE PLOWING. Plows may share a cell (config.allow_shared_cells). A plow that stands on
+a snowy cell is BUSY: it stays there (its only legal action is DO_NOTHING) until the cell is
+completely clean. Cleaning a cell takes config.snow.plow_time(level, n_plows) steps, e.g. with
+the defaults one plow needs 1 / 4 / 8 steps for snow level 1 / 2 / 3 and two plows on the same
+cell need only 1 / 2 / 3 steps. The step on which a plow arrives already counts as work.
 
 ACTIONS. A policy outputs an integer i and the env executes Enums.ACTIONS[i]
 (DO_NOTHING, UP, DOWN, RIGHT, LEFT). Not every action is legal on every cell (walls,
@@ -60,7 +66,11 @@ from snowplow.road_network_configs import road_network_1
 from snowplow.snow import SnowField
 
 # Channels of the observable grid, in order (see get_observable_grid).
-GRID_CHANNELS = ("snow", "obstacle", "road", "highway", "intersection", "can_up", "can_down", "can_right", "can_left")
+# "plow_progress" (last channel) is the fraction of plowing work already done on every cell, so a
+# plow can see whether a teammate is busy on a cell and how much work is left there.
+GRID_CHANNELS = (
+    "snow", "obstacle", "road", "highway", "intersection", "can_up", "can_down", "can_right", "can_left", "plow_progress",
+)
 
 # mosaic's Direction numbering (used only so the drawn plow faces where it drove).
 _FACING = {MovementActions.RIGHT: 0, MovementActions.DOWN: 1, MovementActions.LEFT: 2, MovementActions.UP: 3}
@@ -79,6 +89,7 @@ class SnowPlowEnv(MultiGridEnv):
         render_mode: str | None = None,
         screen_size: int = 500,
         render_fps: int = 20,
+        **kwargs,
     ):
         self.metadata["render_fps"] = render_fps
         self.config = config or SnowplowConfig()
@@ -92,6 +103,10 @@ class SnowPlowEnv(MultiGridEnv):
         )
         self.last_movement_results: dict = {}
         self._finished = False
+        # Cooperative plowing bookkeeping: for every cell that is being plowed, how much of its
+        # work each plow has done so far ({(x, y): {plow_id: work fraction}}). Used to split the
+        # clearing reward fairly when several plows worked on the same cell.
+        self._work_share: dict[tuple[int, int], dict[AgentID, float]] = {}
 
         # Static channels never change during an episode: compute them once.
         codes = self.road_map.codes
@@ -114,6 +129,7 @@ class SnowPlowEnv(MultiGridEnv):
             render_mode=render_mode,
             screen_size=screen_size,
             highlight=False,  # mosaic's field-of-view highlight does not apply to this env
+            **kwargs,
         )
 
     # ------------------------------------------------------------ properties
@@ -155,6 +171,7 @@ class SnowPlowEnv(MultiGridEnv):
         self.metrics.reset()
         self.last_movement_results = {}
         self._finished = False
+        self._work_share = {}
 
     def place_obj(
         self,
@@ -184,19 +201,32 @@ class SnowPlowEnv(MultiGridEnv):
 
     # ---------------------------------------------------------- what plows see
     def get_observable_grid(self) -> np.ndarray:
-        """Everything the plows may see, as a float array [9, H, W] (see GRID_CHANNELS).
+        """Everything the plows may see, as a float array [10, H, W] (see GRID_CHANNELS).
 
-        snow/max_snow, terrain one-hot (obstacle, road, highway, intersection) and which of
-        the four moves is allowed from each cell (= lane directions). Clouds are NOT in here:
-        they are hidden from the plows.
+        snow/max_snow, terrain one-hot (obstacle, road, highway, intersection), which of
+        the four moves is allowed from each cell (= lane directions) and the plowing progress
+        (0..1) of every cell. Clouds are NOT in here: they are hidden from the plows.
         """
         grid = np.empty((len(GRID_CHANNELS), self.height, self.width), dtype=np.float32)
         grid[0] = self.snow_field.snow / self.config.snow.max_snow
-        grid[1:] = self._static_channels
+        grid[1:9] = self._static_channels
+        grid[9] = self.snow_field.plow_progress
         return grid
 
+    def is_busy(self, agent_id: AgentID) -> bool:
+        """True while the plow stands on a snowy cell: it is plowing and may not leave yet."""
+        x, y = (int(v) for v in self.agents[agent_id].state.pos)
+        return bool(self.snow_field.snow[y, x] > 0)
+
     def get_action_mask(self, agent_id: AgentID) -> np.ndarray:
-        """bool [n_actions]: which actions are legal on the plow's current cell (DO_NOTHING always is)."""
+        """bool [n_actions]: which actions are legal on the plow's current cell (DO_NOTHING always is).
+
+        A busy plow (on a snowy cell) can only DO_NOTHING: it keeps plowing until the cell is clean.
+        """
+        if self.is_busy(agent_id):
+            mask = np.zeros(len(ACTIONS), dtype=bool)
+            mask[ACTIONS.index(MovementActions.DO_NOTHING)] = True
+            return mask
         x, y = (int(v) for v in self.agents[agent_id].state.pos)
         return self.road_map.allowed[y, x].copy()
 
@@ -219,6 +249,12 @@ class SnowPlowEnv(MultiGridEnv):
         # 1-2. receive + validate
         action_of = self._validate_actions(actions)
 
+        # 2b. busy plows (standing on a snowy cell) stay where they are and keep plowing,
+        #     whatever action they sent (their action mask only allows DO_NOTHING anyway).
+        busy = {agent.index for agent in self.agents if self.is_busy(agent.index)}
+        for agent_id in busy:
+            action_of[agent_id] = MovementActions.DO_NOTHING
+
         # 3-5. intended movements -> conflicts -> resolution (shared simultaneous-movement code)
         results = handle_simultaneous_movement(
             agents=self.agents,
@@ -227,11 +263,14 @@ class SnowPlowEnv(MultiGridEnv):
             width=self.width,
             height=self.height,
             is_move_allowed=self.is_move_allowed,
+            allow_shared_cells=self.config.allow_shared_cells,
         )
+        for agent_id in busy:
+            results[agent_id]["status"] = "plowing"
         self.last_movement_results = results
         self._emit_movement_events(results)
 
-        # 6. interactions: plows clear snow from the cells they drove onto
+        # 6. interactions: every plow standing on a snowy cell works on it (alone or together)
         self._plow_snow(results)
 
         # 7. update dynamic world state, 8. stochastic events
@@ -310,6 +349,8 @@ class SnowPlowEnv(MultiGridEnv):
                 event_type = EventType.MOVED
             elif status == "waited":
                 event_type = EventType.DO_NOTHING
+            elif status == "plowing":
+                event_type = SnowplowEvent.PLOWING
             elif status in _COLLISION_STATUSES:
                 event_type = EventType.AGENT_COLLISION
             else:
@@ -329,24 +370,65 @@ class SnowPlowEnv(MultiGridEnv):
                 ]
 
     def _plow_snow(self, results: dict) -> None:
-        """Stage 6: every plow that moved onto a cell removes up to `clear_per_pass` layers there.
+        """Stage 6: time-based, cooperative plowing.
 
-        Clearing happens for all plows first; only then do we look at which streets became
-        snow-free, so the result does not depend on the order of the plows.
+        1. Count how many plows stand on every cell after the movement stage (cells can be shared).
+        2. Every snowy cell with plows on it gets one step of work: 1 / plow_time(level, n_plows)
+           (see SnowField.plow_step). Two plows on a level-3 cell finish in 3 steps instead of 8.
+        3. Remember how much of the work each plow did on each cell (self._work_share).
+        4. When a cell becomes clean, every plow that worked on it gets a PARTIALLY_CLEARED event
+           whose reward_scale is (layers removed) x (its share of the work). The shares add up to 1,
+           so the team reward of a cell is the same whoever cleaned it.
+        5. Only after all cells are processed, check which streets became completely snow-free,
+           so the result does not depend on the order of the plows.
         """
-        contributors: dict[int, list[AgentID]] = {}  # street id -> plows that cleared a cell on it
+        snow = self.snow_field.snow
+        plows_on_cell: dict[tuple[int, int], list[AgentID]] = {}
         for agent_id, result in results.items():
-            if result["status"] != "moved":
-                continue
+            pos = tuple(int(v) for v in result["resolved_position"])
+            plows_on_cell.setdefault(pos, []).append(agent_id)
+
+        # Bookkeeping that does not change the world.
+        for pos, agent_ids in plows_on_cell.items():
+            if len(agent_ids) > 1:
+                self.metrics.add("shared_cell_steps", len(agent_ids))  # plow-steps spent sharing a cell
+        for agent_id, result in results.items():
             x, y = (int(v) for v in result["resolved_position"])
-            removed = self.snow_field.clear(x, y)
-            if removed == 0:
+            if result["status"] == "moved" and snow[y, x] == 0:
                 self.metrics.add("repeated_work")  # drove onto a cell that was already clean
-                continue
+            if snow[y, x] > 0:
+                self.metrics.add("plowing_steps")  # one plow-step of plowing work
+
+        # Work: who contributes how much to which cell (before plow_step changes the snow).
+        workers = {pos: len(ids) for pos, ids in plows_on_cell.items() if snow[pos[1], pos[0]] > 0}
+        for pos, n_plows in workers.items():
+            step_work = 1.0 / self.config.snow.plow_time(int(snow[pos[1], pos[0]]), n_plows)
+            shares = self._work_share.setdefault(pos, {})
+            for agent_id in plows_on_cell[pos]:
+                shares[agent_id] = shares.get(agent_id, 0.0) + step_work / n_plows
+
+        cleared = self.snow_field.plow_step(workers)
+
+        contributors: dict[int, set[AgentID]] = {}  # street id -> plows that cleaned a cell on it
+        for (x, y), removed in cleared.items():
+            shares = self._work_share.pop((x, y), {})
+            total = sum(shares.values()) or 1.0
             self.metrics.add("snow_cleared", removed)
-            self.event_log.emit(SnowplowEvent.PARTIALLY_CLEARED, agent_id=agent_id, step=self.step_count, position=(x, y), removed=removed)
+            self.metrics.add("cells_cleared")
+            if len(shares) > 1:
+                self.metrics.add("cells_cleared_together")  # the cooperation we want the plows to learn
+            for agent_id, share in shares.items():
+                self.event_log.emit(
+                    SnowplowEvent.PARTIALLY_CLEARED,
+                    agent_id=agent_id,
+                    step=self.step_count,
+                    position=(x, y),
+                    removed=removed,
+                    n_plows=len(shares),
+                    reward_scale=removed * share / total,
+                )
             street = int(self.road_map.street_id[y, x])
-            contributors.setdefault(street, []).append(agent_id)
+            contributors.setdefault(street, set()).update(shares)
 
         for street, agent_ids in contributors.items():
             if self.snow_field.street_snow(street) > 0:
@@ -354,17 +436,22 @@ class SnowPlowEnv(MultiGridEnv):
             is_main = bool(self.road_map.street_is_main[street])
             event = SnowplowEvent.MAIN_STREET_CLEARED if is_main else SnowplowEvent.SECONDARY_STREET_CLEARED
             self.metrics.add("main_streets_cleared" if is_main else "secondary_streets_cleared")
-            for agent_id in agent_ids:  # every plow that helped gets the street reward
+            for agent_id in sorted(agent_ids):  # every plow that helped gets the street reward
                 self.event_log.emit(event, agent_id=agent_id, step=self.step_count, street=street)
 
     # --------------------------------------------------------------- metrics
     def episode_metrics(self) -> dict:
         """Metrics of the episode so far (steps, reward, snow cleared, % clean, success, ...)."""
         summary = self.metrics.summary()
-        for key in ("snow_cleared", "repeated_work", "main_streets_cleared", "secondary_streets_cleared"):
+        for key in (
+            "snow_cleared", "repeated_work", "main_streets_cleared", "secondary_streets_cleared",
+            "cells_cleared", "cells_cleared_together", "plowing_steps", "shared_cell_steps",
+        ):
             summary.setdefault(key, 0.0)
-        for key in ("events/moved", "events/do_nothing", "events/invalid_move", "events/agent_collision"):
+        for key in ("events/moved", "events/do_nothing", "events/invalid_move", "events/agent_collision", "events/plowing"):
             summary.setdefault(key, 0)
+        # Fraction of the cleaned cells that were cleaned by 2+ plows together (cooperation indicator).
+        summary["cooperation_rate"] = summary["cells_cleared_together"] / summary["cells_cleared"] if summary["cells_cleared"] else 0.0
         summary["snow_fallen"] = self.snow_field.total_fallen
         summary["snow_remaining"] = int(self.snow_field.snow.sum())
         summary["fraction_clean"] = self.snow_field.fraction_clean
@@ -375,10 +462,15 @@ class SnowPlowEnv(MultiGridEnv):
     def get_full_render(self, highlight: bool, tile_size: int):
         """Draw the map. Cells are refreshed from the numpy state first (see snowplow/cell.py)."""
         snow = self.snow_field.snow
+        progress = self.snow_field.plow_progress
         clouds = self.snow_field.cloud_mask()
+        plows_here = np.zeros(snow.shape, dtype=int)  # plows per cell, to mark team plowing
+        for agent in self.agents:
+            x, y = (int(v) for v in agent.state.pos)
+            plows_here[y, x] += 1
         for y in range(self.height):
             for x in range(self.width):
                 cell = self.grid.get(x, y)
                 if cell.can_overlap():
-                    cell.set_appearance(int(snow[y, x]), bool(clouds[y, x]))
+                    cell.set_appearance(int(snow[y, x]), bool(clouds[y, x]), float(progress[y, x]), plows_here[y, x] > 1)
         return self.grid.render(tile_size, agents=self.agents, highlight_mask=None)

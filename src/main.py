@@ -19,7 +19,7 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
-from snowplow.baselines import GreedyPolicy, RandomPolicy
+from snowplow.baselines import CooperativeGreedyPolicy, GreedyPolicy, RandomPolicy
 from snowplow.config import SnowConfig, SnowplowConfig
 from snowplow.evaluation import run_policy, run_trainer, summarize
 from snowplow.experiments import EXPERIMENTS
@@ -48,6 +48,13 @@ def add_env_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--max-steps", type=int, help="episode length limit")
     p.add_argument("--spawn-prob", type=float, default=None, help="chance per step of a new cloud (default 0.02)")
     p.add_argument("--initial-clouds", type=int, default=None, help="clouds that already snowed at the start (default 2)")
+    # Cooperative plowing (see SnowConfig.plow_time_single / plow_time_team).
+    p.add_argument("--plow-time-single", type=int, nargs="+", default=None, metavar="T",
+                   help="steps ONE plow needs per snow level 1..max_snow (default: 1 4 8)")
+    p.add_argument("--plow-time-team", type=int, nargs="+", default=None, metavar="T",
+                   help="steps 2+ plows on the same cell need per snow level 1..max_snow (default: 1 2 3)")
+    p.add_argument("--exclusive-cells", action="store_true",
+                   help="forbid plows from sharing a cell (old blocking rules, no cooperative plowing)")
 
 
 def resolve_environment(args: argparse.Namespace) -> tuple[str, SnowplowConfig]:
@@ -58,12 +65,18 @@ def resolve_environment(args: argparse.Namespace) -> tuple[str, SnowplowConfig]:
         snow["cloud_spawn_prob"] = args.spawn_prob
     if args.initial_clouds is not None:
         snow["initial_clouds"] = args.initial_clouds
+    # Plow times are given for levels 1..max_snow on the command line; level 0 needs no work.
+    if getattr(args, "plow_time_single", None):
+        snow["plow_time_single"] = (0, *args.plow_time_single)
+    if getattr(args, "plow_time_team", None):
+        snow["plow_time_team"] = (0, *args.plow_time_team)
     config_defaults = SnowplowConfig()
     config = SnowplowConfig(
         n_plows=args.plows if args.plows is not None else preset.get("n_plows", config_defaults.n_plows),
         max_steps=args.max_steps if args.max_steps is not None else preset.get("max_steps", config_defaults.max_steps),
         observation=args.obs if args.obs is not None else preset.get("observation", config_defaults.observation),
         view_size=args.view if args.view is not None else preset.get("view_size", config_defaults.view_size),
+        allow_shared_cells=not getattr(args, "exclusive_cells", False),
         snow=SnowConfig(**snow),
     )
     map_name = args.map if args.map is not None else preset.get("map", "network_3")
@@ -103,6 +116,8 @@ def cmd_baselines(args) -> None:
     policies = [("random", RandomPolicy(seed=args.seed))]
     if config.observation == "full":  # greedy searches the whole map, so it needs the full view
         policies.append(("greedy", GreedyPolicy()))
+        if config.n_plows > 1:  # helping a teammate only makes sense with 2+ plows
+            policies.append(("greedy_coop", CooperativeGreedyPolicy.from_config(config.snow)))
     else:
         print("note: the greedy baseline needs --obs full and is skipped")
     for name, policy in policies:
@@ -215,10 +230,15 @@ def cmd_play(args) -> None:
         info = res.info.get("episode", {})
     else:
         map_name, config = resolve_environment(args)
-        if args.policy == "greedy" and config.observation != "full":
+        if args.policy in ("greedy", "greedy_coop") and config.observation != "full":
             raise SystemExit("the greedy policy needs the full view (--obs full)")
-        env = make_env(map_name, config, render_mode)
-        policy = RandomPolicy(args.seed) if args.policy == "random" else GreedyPolicy()
+        env = make_env(map_name, config, render_mode, render_fps=args.render_fps)
+        if args.policy == "random":
+            policy = RandomPolicy(args.seed)
+        elif args.policy == "greedy_coop":
+            policy = CooperativeGreedyPolicy.from_config(config.snow)
+        else:
+            policy = GreedyPolicy()
         obs, _ = env.reset(seed=args.seed)
         policy.reset()
         while True:
@@ -250,10 +270,12 @@ def print_table(rows: dict[str, dict]) -> None:
         "repeated_work",
         "events/invalid_move",
         "events/agent_collision",
+        "cells_cleared_together",  # cooperative plowing: cells cleaned by 2+ plows together
+        "cooperation_rate",  # ... as a fraction of all cleaned cells
     ]
-    print(f"{'policy':10s}" + "".join(f"{k.split('/')[-1][:14]:>15s}" for k in keys))
+    print(f"{'policy':12s}" + "".join(f"{k.split('/')[-1][:14]:>15s}" for k in keys))
     for name, row in rows.items():
-        print(f"{name:10s}" + "".join(f"{row[k]:15.2f}" for k in keys))
+        print(f"{name:12s}" + "".join(f"{row.get(k, 0.0):15.2f}" for k in keys))
 
 
 def write_results(directory: Path, rows: dict, meta: dict, name: str = "metrics") -> None:
@@ -282,7 +304,7 @@ def main() -> None:
 
     p = sub.add_parser("play", help="run one episode and show it")
     add_env_args(p)
-    p.add_argument("--policy", choices=["random", "greedy", "model"], default="greedy")
+    p.add_argument("--policy", choices=["random", "greedy", "greedy_coop", "model"], default="greedy")
     p.add_argument("--run", help="run directory (for --policy model)")
     p.add_argument("--render", action="store_true", help="open a window")
     p.add_argument("--gif", help="save the episode as an animated GIF")

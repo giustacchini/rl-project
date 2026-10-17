@@ -1,4 +1,4 @@
-"""Snow on the roads: the snow layer, clouds, and plow clearing.
+"""Snow on the roads: the snow layer, clouds, and (time-based, cooperative) plow clearing.
 
 Pure numpy, no rendering and no mosaic objects. All randomness comes from the
 `rng` (a numpy Generator) that the environment passes in, so a given seed always
@@ -32,6 +32,9 @@ class SnowField:
         self.cfg = config
         self._passable = road_map.passable
         self.snow = np.zeros(road_map.shape, dtype=np.int8)  # [H, W]
+        # Fraction (0..1) of the plowing work already done on every cell. A cell is
+        # cleaned completely when this reaches 1 (see plow_step).
+        self.plow_progress = np.zeros(road_map.shape, dtype=np.float64)  # [H, W]
         self.clouds: list[Cloud] = []
         self.total_fallen = 0  # layers of snow that fell during this episode
 
@@ -39,6 +42,7 @@ class SnowField:
     def reset(self, rng: np.random.Generator) -> None:
         """Start a new episode: clean map, then let `initial_clouds` clouds snow."""
         self.snow[:] = 0
+        self.plow_progress[:] = 0.0
         self.clouds = []
         self.total_fallen = 0
         for _ in range(self.cfg.initial_clouds):
@@ -64,10 +68,40 @@ class SnowField:
         return sum(self._snowfall(cloud) for cloud in self.clouds)
 
     # ------------------------------------------------------------------ plows
+    def plow_step(self, workers: dict[tuple[int, int], int]) -> dict[tuple[int, int], int]:
+        """One step of time-based (cooperative) plowing.
+
+        `workers` maps a cell (x, y) to the number of plows standing on it this step.
+        Every snowy cell with at least one plow gets `1 / plow_time(level, n_plows)` of work:
+        one plow on a level-3 cell needs 8 steps (1/8 per step), two plows need 3 steps
+        (1/3 per step). Because the work is stored as a fraction, mixed situations also work:
+        if a second plow joins half-way, the rest of the work simply goes faster. If snow falls
+        on a cell while it is being plowed, the remaining work is done at the new level's speed.
+
+        When the work of a cell reaches 1, ALL its snow is removed at once and its progress
+        resets. Cells without any plow keep their progress (in practice a plow cannot leave a
+        snowy cell, so unfinished work is never abandoned).
+
+        Returns {(x, y): layers removed} for every cell that became clean during this step.
+        """
+        cleared = {}
+        for (x, y), n_plows in workers.items():
+            level = int(self.snow[y, x])
+            if level == 0 or n_plows <= 0:
+                self.plow_progress[y, x] = 0.0  # nothing to do on a clean cell
+                continue
+            self.plow_progress[y, x] += 1.0 / self.cfg.plow_time(level, n_plows)
+            if self.plow_progress[y, x] >= 1.0 - 1e-9:  # tolerance: 1/3 + 1/3 + 1/3 must count as done
+                cleared[(x, y)] = level
+                self.snow[y, x] = 0
+                self.plow_progress[y, x] = 0.0
+        return cleared
+
     def clear(self, x: int, y: int) -> int:
-        """A plow drives onto (x, y): remove up to `clear_per_pass` layers. Returns layers removed."""
-        removed = min(self.cfg.clear_per_pass, int(self.snow[y, x]))
-        self.snow[y, x] -= removed
+        """Instantly remove ALL snow from (x, y) (helper for tests/debugging). Returns layers removed."""
+        removed = int(self.snow[y, x])
+        self.snow[y, x] = 0
+        self.plow_progress[y, x] = 0.0
         return removed
 
     # ---------------------------------------------------------------- queries

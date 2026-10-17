@@ -15,6 +15,8 @@ Every observation is a dict:
                     cells outside the map are all zeros)
     agent_positions {agent_id: (x, y)} of the agents the observer can see
     self_position   (x, y) of the observed agent
+    self_id         id of the observed agent (agents may share a cell, so the position
+                    alone does not tell which entry of agent_positions is "me")
     view_origin     (x, y) map coordinates of the grid's top-left cell: (0, 0) for the full
                     view, (x - r, y - r) for a local window. Lets encoders place positions.
     action_mask     bool [n_actions]                       (only if the env provides it)
@@ -60,6 +62,7 @@ class FullObservationProvider(ObservationProvider):
                 "grid": grid.copy(),  # one copy per agent: callers may modify it safely
                 "agent_positions": agent_positions.copy(),
                 "self_position": agent_positions[agent.index],
+                "self_id": agent.index,
                 "view_origin": (0, 0),
             }
             mask = _action_mask(env, agent.index)
@@ -112,6 +115,7 @@ class LocalObservationProvider(ObservationProvider):
                 "grid": self._window(grid, x, y),
                 "agent_positions": visible,
                 "self_position": (x, y),
+                "self_id": agent.index,
                 "view_origin": (x - r, y - r),
             }
             mask = _action_mask(env, agent.index)

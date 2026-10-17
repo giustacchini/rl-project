@@ -83,17 +83,32 @@ def validate_proposed_moves(
     return validated_moves
 
 
-def resolve_simultaneous_conflicts(validated_moves: dict) -> dict:
+def resolve_simultaneous_conflicts(validated_moves: dict, allow_shared_cells: bool = False) -> dict:
     """
     Resolve all agents from the same pre-step state (order-independent).
 
+    With allow_shared_cells=False (exclusive cells, the default):
     - same destination requested by > 1 moving agent -> all blocked
     - two-agent swap -> both blocked
     - moving into a cell whose occupant stays -> blocked, propagated
       backwards through dependency chains
     - chains ending in an empty cell -> allowed
+
+    With allow_shared_cells=True several agents may stand on one cell (e.g.
+    snowplows working together on the same snowy cell). Agents then never
+    block each other: every move that passed validation is executed, and the
+    only remaining statuses are "moved" and "waited".
     """
     moves_after_conflicts = {agent_id: record.copy() for agent_id, record in validated_moves.items()}
+
+    if allow_shared_cells:
+        # No agent-agent conflicts exist when cells can be shared: just finalise the statuses.
+        for record in moves_after_conflicts.values():
+            record["resolved_position"] = record["intended_position"].copy()
+            if record["status"] == "valid":
+                same = tuple(record["current_position"]) == tuple(record["resolved_position"])
+                record["status"] = "waited" if same else "moved"
+        return moves_after_conflicts
 
     pos_list = defaultdict(list)
     pos_map = {}
@@ -190,15 +205,19 @@ def handle_simultaneous_movement(
     width: int,
     height: int,
     is_move_allowed: Optional[MoveAllowedFn] = None,
+    allow_shared_cells: bool = False,
 ) -> dict:
     """
     Convenience wrapper running all four stages in order, matching the
     `handle_actions()` lifecycle already used in SnowPlowEnv. Returns
     the final per-agent movement records (status, resolved_position, ...).
+
+    allow_shared_cells: if True, agents may end the step on the same cell
+    (see resolve_simultaneous_conflicts).
     """
     agents_by_id = {agent.index: agent for agent in agents}
 
     intentions = build_movement_intentions(agents, actions)
     validated = validate_proposed_moves(intentions, agents_by_id, grid, width, height, is_move_allowed)
-    resolved = resolve_simultaneous_conflicts(validated)
+    resolved = resolve_simultaneous_conflicts(validated, allow_shared_cells=allow_shared_cells)
     return commit_resolved_positions(agents_by_id, resolved)
