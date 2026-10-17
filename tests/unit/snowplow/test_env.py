@@ -78,8 +78,10 @@ def test_leaving_the_map_is_blocked_and_penalised(make_env):
     assert [e.type for e in env.event_log.events()] == [EventType.INVALID_MOVE]
 
 
+# The three blocking rules below only apply with exclusive cells (allow_shared_cells=False).
+# With shared cells (the default, for cooperative plowing) see test_cooperative_plowing.py.
 def test_two_plows_requesting_the_same_cell_both_stay(make_env):
-    env = make_env([(1, 1), (2, 2)])
+    env = make_env([(1, 1), (2, 2)], allow_shared_cells=False)
     _, rewards, *_ = env.step({0: RIGHT, 1: UP})  # both want (2, 1)
     assert pos(env, 0) == (1, 1) and pos(env, 1) == (2, 2)
     assert status(env, 0) == status(env, 1) == "blocked_same_destination"
@@ -88,14 +90,14 @@ def test_two_plows_requesting_the_same_cell_both_stay(make_env):
 
 
 def test_plows_cannot_swap(make_env):
-    env = make_env([(1, 1), (2, 1)])
+    env = make_env([(1, 1), (2, 1)], allow_shared_cells=False)
     env.step({0: RIGHT, 1: LEFT})
     assert pos(env, 0) == (1, 1) and pos(env, 1) == (2, 1)
     assert status(env, 0) == status(env, 1) == "blocked_swap"
 
 
 def test_plow_cannot_enter_cell_of_a_waiting_plow(make_env):
-    env = make_env([(1, 1), (2, 1)])
+    env = make_env([(1, 1), (2, 1)], allow_shared_cells=False)
     env.step({0: RIGHT, 1: WAIT})
     assert pos(env, 0) == (1, 1) and status(env, 0) == "blocked_occupied_cell" and status(env, 1) == "waited"
 
@@ -130,7 +132,8 @@ def test_wrong_way_on_the_highway_is_rejected():
 
 
 def test_action_mask_matches_traffic_rules():
-    env = SnowPlowEnv(road_network_1, SnowplowConfig())
+    # No snow: a plow on a snowy cell would be busy (only DO_NOTHING allowed), see test_cooperative_plowing.py.
+    env = SnowPlowEnv(road_network_1, SnowplowConfig(snow=SnowConfig(initial_clouds=0, cloud_spawn_prob=0)))
     env.reset(seed=0)
     place(env, [(5, 4)])
     mask = env.get_action_mask(0)
@@ -149,25 +152,28 @@ def test_action_mask_matches_traffic_rules():
 
 
 # ------------------------------------------------------------------------- snow
-def test_plow_removes_at_most_two_layers_and_is_rewarded(make_env):
+def test_plow_cleans_a_level_2_cell_in_4_steps_and_is_rewarded(make_env):
     env = make_env([(1, 1)])
-    set_snow(env, {(2, 1): 3, (5, 5): 1})  # a second snowy cell keeps the episode running
-    _, rewards, *_ = env.step({0: RIGHT})
-    assert env.snow_field.snow[1, 2] == 1  # 3 -> 1
-    assert rewards[0] == -1 + 1  # move cost + partial clean
-    place(env, [(1, 1)])
-    env.step({0: RIGHT})
-    assert env.snow_field.snow[1, 2] == 0  # 1 -> 0
+    set_snow(env, {(2, 1): 2, (5, 5): 1})  # a second snowy cell keeps the episode running
+    _, rewards, *_ = env.step({0: RIGHT})  # arrival = first working step
+    assert env.snow_field.snow[1, 2] == 2 and rewards[0] == -1  # not done yet, only the move cost
+    for _ in range(2):
+        env.step({0: WAIT})
+    assert env.snow_field.snow[1, 2] == 2
+    _, rewards, *_ = env.step({0: WAIT})  # 4th step: done, all snow removed at once
+    assert env.snow_field.snow[1, 2] == 0
+    assert rewards[0] == 2  # one reward point per snow layer
 
 
-def test_a_waiting_plow_does_not_clear_snow(make_env):
+def test_a_plow_standing_on_snow_plows_it(make_env):
     env = make_env([(1, 1)])
-    set_snow(env, {(1, 1): 2, (5, 5): 1})
-    env.step({0: WAIT})
-    assert env.snow_field.snow[1, 1] == 2
+    set_snow(env, {(1, 1): 1, (5, 5): 1})
+    env.step({0: WAIT})  # level 1 needs a single step
+    assert env.snow_field.snow[1, 1] == 0
 
 
-def test_secondary_street_reward():
+# Street completion is still reported as an event (for the metrics) but no longer rewarded.
+def test_secondary_street_event_without_reward():
     two_streets = {  # street A = the top row, street B = the two lower rows
         "size": (3, 3),
         "roads": [{"position": (0, 0), "size": (1, 3)}, {"position": (1, 0), "size": (2, 3)}],
@@ -180,7 +186,7 @@ def test_secondary_street_reward():
     place(env, [(0, 0)])
     set_snow(env, {(1, 0): 1, (1, 2): 3})  # the only snow of street A is on (1, 0)
     _, rewards, *_ = env.step({0: RIGHT})  # finishes street A only
-    assert rewards[0] == -1 + 1 + 2
+    assert rewards[0] == -1 + 1  # move cost + level-1 cell, no street bonus
     assert SnowplowEvent.SECONDARY_STREET_CLEARED in [e.type for e in env.event_log.events()]
 
 
@@ -190,7 +196,7 @@ def test_main_street_reward():
     place(env, [(3, 2)])  # northern highway lane, flows west
     set_snow(env, {(2, 2): 1, (0, 6): 3})
     _, rewards, *_ = env.step({0: LEFT})
-    assert rewards[0] == -1 + 1 + 4
+    assert rewards[0] == -1 + 1  # move cost + level-1 cell, no street bonus
     assert SnowplowEvent.MAIN_STREET_CLEARED in [e.type for e in env.event_log.events()]
 
 
@@ -211,7 +217,7 @@ def test_cleaning_everything_does_not_terminate_before_max_steps(make_env):
     set_snow(env, {(2, 1): 1})
     obs, rewards, terminated, truncated, info = env.step({0: RIGHT})
     assert terminated == {0: False} and truncated == {0: False}
-    assert rewards[0] == -1 + 1 + 2  # move, partial, street (whole map = one street)
+    assert rewards[0] == -1 + 1  # move + level-1 cell (street completion is no longer rewarded)
     env.step({0: WAIT})  # episodes terminate only at max_steps
 
 
@@ -242,10 +248,14 @@ def test_reset_starts_a_fresh_episode(make_env):
 def test_metrics_are_reported(make_env):
     env = make_env([(1, 1)])
     set_snow(env, {(2, 1): 3, (3, 1): 0, (6, 6): 3})
-    env.step({0: RIGHT}), env.step({0: RIGHT})  # second move goes onto a clean cell
+    env.step({0: RIGHT})  # onto the level-3 cell: busy for 8 steps
+    for _ in range(7):
+        env.step({0: RIGHT})  # ignored while busy
+    env.step({0: RIGHT})  # free again: goes onto a clean cell
     m = env.episode_metrics()
-    assert m["steps"] == 2 and m["snow_cleared"] == 2 and m["repeated_work"] == 1
-    assert m["events/moved"] == 2 and 0 < m["fraction_clean"] < 1
+    assert m["steps"] == 9 and m["snow_cleared"] == 3 and m["repeated_work"] == 1
+    assert m["events/moved"] == 2 and m["events/plowing"] == 7 and m["plowing_steps"] == 8
+    assert m["cells_cleared"] == 1 and m["cooperation_rate"] == 0.0 and 0 < m["fraction_clean"] < 1
 
 
 # ------------------------------------------------------------------ robustness

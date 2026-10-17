@@ -50,3 +50,20 @@ def test_default_run_directories_are_unique(tmp_path, monkeypatch):
     assert first != second
     assert first.name.startswith("exp1_network_3_ppo_seed0_")
     assert second.name.startswith("exp1_network_3_ppo_seed0_")
+
+
+def test_checkpoint_callback_saves_every_n_steps(tmp_path):
+    """--checkpoint-every: one file per multiple of N, named after the env step reached."""
+    from main import make_checkpoint_callback
+
+    saved = []
+
+    class FakeTrainer:
+        def save(self, path):
+            saved.append(path)
+
+    callback = make_checkpoint_callback(FakeTrainer(), tmp_path, every=1000)
+    for steps in (512, 1024, 1536, 2048, 4096):  # 4096 jumps over 3000: only one file for it
+        callback({"env_steps": steps})
+    assert [p.rsplit("_", 1)[-1] for p in saved] == ["1024.pt", "2048.pt", "4096.pt"]
+    assert make_checkpoint_callback(FakeTrainer(), tmp_path, every=None) is None

@@ -27,9 +27,11 @@ class Cloud:
 class SnowField:
     """Snow level (0..max_snow) of every cell plus the clouds that produce it."""
 
-    def __init__(self, road_map: RoadMap, config: SnowConfig):
+    def __init__(self, road_map: RoadMap, config: SnowConfig, n_plows: int = 1):
         self.road_map = road_map
         self.cfg = config
+        # Cloud spawn chance of this episode: scales with the number of plows (see SnowConfig.spawn_prob).
+        self.spawn_prob = config.spawn_prob(n_plows)
         self._passable = road_map.passable
         self.snow = np.zeros(road_map.shape, dtype=np.int8)  # [H, W]
         # Fraction (0..1) of the plowing work already done on every cell. A cell is
@@ -63,7 +65,7 @@ class SnowField:
         Returns the number of snow layers that fell during this step.
         """
         in_storm = self.cfg.storm_steps is None or step <= self.cfg.storm_steps
-        if in_storm and rng.random() < self.cfg.cloud_spawn_prob:
+        if in_storm and rng.random() < self.spawn_prob:
             self.clouds.append(self._new_cloud(rng, on_road=False))
         return sum(self._snowfall(cloud) for cloud in self.clouds)
 

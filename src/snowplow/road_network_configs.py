@@ -214,7 +214,6 @@ road_network_3 = {
         {"position": (0, 0), "size": (1, 1)},
         {"position": (0, 3), "size": (1, 1)},
         {"position": (0, 7), "size": (1, 1)},
-        {"position": (0, 11), "size": (1, 1)},
         {"position": (0, 15), "size": (1, 1)},
         {"position": (0, 18), "size": (1, 1)},
         # Upper horizontal road

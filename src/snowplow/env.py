@@ -417,6 +417,7 @@ class SnowPlowEnv(MultiGridEnv):
             self.metrics.add("cells_cleared")
             if len(shares) > 1:
                 self.metrics.add("cells_cleared_together")  # the cooperation we want the plows to learn
+            
             for agent_id, share in shares.items():
                 self.event_log.emit(
                     SnowplowEvent.PARTIALLY_CLEARED,

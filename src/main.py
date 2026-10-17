@@ -46,7 +46,10 @@ def add_env_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--obs", choices=["full", "local"], help="what a plow sees: the whole map or a window")
     p.add_argument("--view", type=int, choices=[3, 5], help="window size for --obs local")
     p.add_argument("--max-steps", type=int, help="episode length limit")
-    p.add_argument("--spawn-prob", type=float, default=None, help="chance per step of a new cloud (default 0.02)")
+    p.add_argument("--spawn-prob", type=float, default=None,
+                   help="chance per step of a new cloud PER PLOW: the real chance is this x number of plows (default 0.02)")
+    p.add_argument("--fixed-spawn-prob", action="store_true",
+                   help="do not scale the cloud spawn chance with the number of plows")
     p.add_argument("--initial-clouds", type=int, default=None, help="clouds that already snowed at the start (default 2)")
     # Cooperative plowing (see SnowConfig.plow_time_single / plow_time_team).
     p.add_argument("--plow-time-single", type=int, nargs="+", default=None, metavar="T",
@@ -65,6 +68,8 @@ def resolve_environment(args: argparse.Namespace) -> tuple[str, SnowplowConfig]:
         snow["cloud_spawn_prob"] = args.spawn_prob
     if args.initial_clouds is not None:
         snow["initial_clouds"] = args.initial_clouds
+    if getattr(args, "fixed_spawn_prob", False):
+        snow["scale_spawn_with_plows"] = False
     # Plow times are given for levels 1..max_snow on the command line; level 0 needs no work.
     if getattr(args, "plow_time_single", None):
         snow["plow_time_single"] = (0, *args.plow_time_single)
@@ -176,7 +181,7 @@ def cmd_train(args) -> None:
             indent=1,
         )
     )
-    history = trainer.learn(args.steps, log_every=args.log_every)
+    history = trainer.learn(args.steps, log_every=args.log_every, callback=make_checkpoint_callback(trainer, run_dir, args.checkpoint_every))
     trainer.save(str(run_dir / "model.pt"))
     (run_dir / "history.json").write_text(json.dumps(history, indent=1))
 
@@ -186,8 +191,38 @@ def cmd_train(args) -> None:
     print(f"saved model, history and metrics to {run_dir}/")
 
 
-def load_trainer(run_dir: Path):
-    """Rebuild a trainer from a run directory (config.json) and load its weights (model.pt)."""
+def make_checkpoint_callback(trainer, run_dir: Path, every: int | None):
+    """Callback for trainer.learn() that saves the model every `every` environment steps.
+
+    Checkpoints go to <run_dir>/checkpoints/model_step_<env steps>.pt. The trainer reports its
+    step count once per update (rollout_len x n_envs steps), so a checkpoint is written on the
+    first update that reaches or passes each multiple of `every`. Returns None when disabled.
+    """
+    if not every or every <= 0:
+        return None
+    checkpoint_dir = run_dir / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    next_save = {"at": every}  # mutable so the closure can advance it
+
+    def callback(stats: dict) -> None:
+        steps = int(stats["env_steps"])
+        if steps < next_save["at"]:
+            return
+        path = checkpoint_dir / f"model_step_{steps}.pt"
+        trainer.save(str(path))
+        print(f"checkpoint saved: {path}")
+        while next_save["at"] <= steps:  # skip multiples already passed by a long update
+            next_save["at"] += every
+
+    return callback
+
+
+def load_trainer(run_dir: Path, checkpoint: str | None = None):
+    """Rebuild a trainer from a run directory (config.json) and load its weights.
+
+    By default the final model.pt is loaded; `checkpoint` selects another weights file, either a
+    path or a file name inside <run_dir>/checkpoints (e.g. model_step_100000.pt).
+    """
     from algorithms import MAPPO, PPO, PPOConfig  # needs torch
 
     saved = json.loads((run_dir / "config.json").read_text())
@@ -195,12 +230,19 @@ def load_trainer(run_dir: Path):
     trainer = {"ppo": PPO, "mappo": MAPPO}[saved["algo"]](
         make_env_fn(saved["map"], config), PPOConfig(**saved["ppo"]), adapter_kwargs(config)
     )
-    trainer.load(str(run_dir / "model.pt"))
+    weights = run_dir / "model.pt"
+    if checkpoint:
+        weights = Path(checkpoint)
+        if not weights.exists():
+            weights = run_dir / "checkpoints" / checkpoint
+        if not weights.exists():
+            raise SystemExit(f"checkpoint not found: {checkpoint}")
+    trainer.load(str(weights))
     return trainer, saved["map"], config
 
 
 def cmd_evaluate(args) -> None:
-    trainer, _, _ = load_trainer(Path(args.run))
+    trainer, _, _ = load_trainer(Path(args.run), args.checkpoint)
     results = summarize(run_trainer(trainer, args.episodes, seed=args.seed, deterministic=args.deterministic))
     print_table({"trained": results})
     write_results(Path(args.run), {"trained": results}, {"episodes": args.episodes}, name="evaluation")
@@ -214,7 +256,7 @@ def cmd_play(args) -> None:
     if args.policy == "model":
         from algorithms.adapter import ParallelEnvAdapter
 
-        trainer, map_name, config = load_trainer(Path(args.run))
+        trainer, map_name, config = load_trainer(Path(args.run), args.checkpoint)
         env = make_env(map_name, config, render_mode, render_fps=args.render_fps)
         adapter = ParallelEnvAdapter(env, **adapter_kwargs(config))
         act = trainer.make_policy(deterministic=args.deterministic)
@@ -306,6 +348,7 @@ def main() -> None:
     add_env_args(p)
     p.add_argument("--policy", choices=["random", "greedy", "greedy_coop", "model"], default="greedy")
     p.add_argument("--run", help="run directory (for --policy model)")
+    p.add_argument("--checkpoint", help="load this checkpoint instead of model.pt (file in <run>/checkpoints or a path)")
     p.add_argument("--render", action="store_true", help="open a window")
     p.add_argument("--gif", help="save the episode as an animated GIF")
     p.add_argument("--seed", type=int, default=0)
@@ -328,12 +371,15 @@ def main() -> None:
     p.add_argument("--hidden", type=int, default=128)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--eval-episodes", type=int, default=50)
+    p.add_argument("--checkpoint-every", type=int, default=None, metavar="STEPS",
+                   help="also save the model every STEPS environment steps to <run>/checkpoints/")
     p.add_argument("--log-every", type=int, default=10, help="print every N PPO updates")
     p.add_argument("--out", help="run directory (default includes the current date and time)")
     p.set_defaults(func=cmd_train)
 
     p = sub.add_parser("evaluate", help="score a trained model")
     p.add_argument("--run", required=True)
+    p.add_argument("--checkpoint", help="load this checkpoint instead of model.pt (file in <run>/checkpoints or a path)")
     p.add_argument("--episodes", type=int, default=100)
     p.add_argument("--seed", type=int, default=1000)
     p.add_argument("--deterministic", action="store_true")

@@ -26,6 +26,9 @@ All commands below run from the repository root using the activated environment.
 # Watch Experiment 1: one plow with full observability.
 python src/main.py play --experiment exp1 --policy greedy --render
 
+# Watch two plows that help each other on heavy snow.
+python src/main.py play --experiment exp3 --policy greedy_coop --render
+
 # Run random and greedy baselines and save JSON/CSV metrics.
 python src/main.py baselines --experiment exp1 --episodes 50 --seed 1000 --out results/exp1
 
@@ -36,7 +39,7 @@ python src/main.py baselines --map network_1 --episodes 2 --max-steps 30
 python src/main.py play --map network_1 --policy random --max-steps 30 --gif results/random.gif
 
 # Train and evaluate a model (requires PyTorch).
-python src/main.py train --experiment exp1 --steps 500000 --seed 0 --out results/exp1_model
+python src/main.py train --experiment exp1 --steps 500000 --seed 0 --out results/exp1_model --checkpoint-every 100000
 python src/main.py evaluate --run results/exp1_model --episodes 100 --seed 1000
 python src/main.py play --policy model --run results/exp1_model --render
 ```
@@ -98,12 +101,48 @@ and plow positions; cloud locations are hidden. Local observations use 3x3 or
 5x5 windows. The API is Parallel-style and uses the project's algorithm adapter;
 it is not a claim of strict PettingZoo API compatibility.
 
-Default snow levels are 0–3 and plows clear at most two layers per pass. Movement
-costs -1, waiting -2, and invalid movement -5. Clearing a snowy cell gives +1;
-completing a secondary/main street gives +2/+4. Collision events cost -10 and
-completion gives +100 as shared team rewards. A street is one configured
-rectangle, so splitting rectangles changes street-completion rewards. Values
-and sharing rules are defined in `snowplow/rewards.py` and `shared/rewards.py`.
+Default snow levels are 0–3. Movement costs -1; waiting and plowing cost 0.
+Cleaning a cell pays its snow level: +1 / +2 / +3 for a level 1 / 2 / 3 cell
+(`SNOW_LEVEL_REWARDS`). Street completion is still counted in the metrics but no
+longer rewarded. Values and sharing rules are defined in `snowplow/rewards.py`
+and `shared/rewards.py`.
+
+New clouds appear with probability `cloud_spawn_prob` (default 0.02) **per plow**
+each step: 0.02 with one plow, 0.10 with five. Use `--spawn-prob` to change the
+per-plow value and `--fixed-spawn-prob` to stop the scaling.
+
+Training can save intermediate models with `--checkpoint-every STEPS`; they go to
+`<run>/checkpoints/model_step_<steps>.pt`. Load one with
+`evaluate --run <run> --checkpoint model_step_100000.pt` (also works for
+`play --policy model`).
+
+### Cooperative plowing
+
+Plows may share a cell, and plowing takes time. A plow standing on a snowy cell is
+**busy**: its only legal action is `DO_NOTHING` until the cell is completely clean.
+The time needed depends on the snow level and on how many plows work on the cell:
+
+| Snow level | One plow | Two or more plows |
+|---:|---:|---:|
+| 1 | 1 step | 1 step |
+| 2 | 4 steps | 2 steps |
+| 3 | 8 steps | 3 steps |
+
+The arrival step counts as the first working step. Work is stored as a fraction per
+cell (`plow_progress`, also an observation channel), so a helper that arrives late
+still speeds up the rest of the job, and snow falling during plowing slows it down.
+The clearing reward of a cell (its layers) is split between the plows in proportion
+to the work each did, so the team earns the same per cell alone or together:
+cooperation only pays off by being faster.
+
+Settings: `SnowConfig.plow_time_single`, `SnowConfig.plow_time_team` and
+`SnowplowConfig.allow_shared_cells` (CLI: `--plow-time-single 1 4 8`,
+`--plow-time-team 1 2 3`, `--exclusive-cells`). The `greedy_coop` baseline sends an
+idle plow to help a busy teammate when it can arrive before the teammate finishes
+alone. Episode metrics include `cells_cleared_together` and `cooperation_rate`
+(fraction of cleaned cells that were cleaned by 2+ plows) to track whether trained
+agents learn to cooperate. Changing the observation (new `plow_progress` channel)
+means models trained before this change cannot be loaded.
 
 ## Tests and documentation
 

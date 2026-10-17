@@ -28,7 +28,11 @@ class SnowConfig:
 
     # Clouds: hidden from the agents, they only drop snow on the roads below them.
     initial_clouds: int = 10 # clouds that have already snowed when the episode starts
-    cloud_spawn_prob: float = 0.05  # chance per step that a new cloud appears
+    # Chance per step that a new cloud appears, PER PLOW: with scale_spawn_with_plows=True the
+    # real chance is cloud_spawn_prob * n_plows (e.g. 0.02 for 1 plow, 0.02 * 5 = 0.10 for 5 plows),
+    # so more plows face proportionally more snow. See spawn_prob().
+    cloud_spawn_prob: float = 0.02
+    scale_spawn_with_plows: bool = True
     cloud_min_size: int = 3  # bounding box of a cloud: between 3x3 ...
     cloud_max_size: int = 9  # ... and 9x9 cells (the blob shape is irregular)
     cloud_min_lifetime: int = 1  # steps a cloud keeps snowing
@@ -54,6 +58,16 @@ class SnowConfig:
                 raise ValueError(f"{name} needs one entry per snow level 0..max_snow ({self.max_snow + 1} values)")
             if any(t < 1 for t in times[1:]):
                 raise ValueError(f"{name}: plowing a snowy cell takes at least 1 step")
+
+    def spawn_prob(self, n_plows: int) -> float:
+        """Chance per step that a new cloud appears in an episode with `n_plows` plows.
+
+        cloud_spawn_prob * n_plows when scale_spawn_with_plows is on (capped at 1), otherwise
+        cloud_spawn_prob unchanged.
+        """
+        if not self.scale_spawn_with_plows:
+            return self.cloud_spawn_prob
+        return min(1.0, self.cloud_spawn_prob * max(1, int(n_plows)))
 
     def plow_time(self, snow_level: int, n_plows: int) -> int:
         """Steps needed to fully clean a cell of `snow_level` when `n_plows` plows work on it together.

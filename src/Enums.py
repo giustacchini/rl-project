@@ -47,7 +47,8 @@ class EventType(Enum):
 class SnowplowEvent(Enum):
     """Events specific to the snowplow task (used for rewards)."""
 
-    PARTIALLY_CLEARED = auto()  # a cell became snow-free; one event per plow that worked on it
+    PARTIALLY_CLEARED = auto()  # LEGACY (old drive-over clearing): no longer emitted
+    CELL_CLEARED = auto()  # a cell became snow-free; one event per plow that worked on it
     PLOWING = auto()  # a plow spent this step working on (staying on) a snowy cell
     SECONDARY_STREET_CLEARED = auto()  # a secondary street became snow-free
     MAIN_STREET_CLEARED = auto()  # a main street (highway) became snow-free
