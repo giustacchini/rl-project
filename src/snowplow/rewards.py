@@ -21,7 +21,7 @@ SNOWPLOW_REWARDS = {
     SnowplowEvent.PARTIALLY_CLEARED: 1,
     SnowplowEvent.SECONDARY_STREET_CLEARED: 2,
     SnowplowEvent.MAIN_STREET_CLEARED: 4,
-    SnowplowEvent.ALL_CLEAN: 100,
+    # SnowplowEvent.ALL_CLEAN: 100,
 }
 
 

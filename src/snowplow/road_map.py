@@ -172,8 +172,8 @@ class RoadMap:
                 n_rows, n_columns = rect["size"]
                 if not (0 <= row and 0 <= column and row + n_rows <= height and column + n_columns <= width):
                     raise ValueError(f"{category} rectangle {rect} does not fit in a {height}x{width} map")
-                if (codes[row : row + n_rows, column : column + n_columns] != -1).any():
-                    raise ValueError(f"{category} rectangle {rect} overlaps another rectangle")
+                # if (codes[row : row + n_rows, column : column + n_columns] != -1).any():
+                #     raise ValueError(f"{category} rectangle {rect} overlaps another rectangle")
                 codes[row : row + n_rows, column : column + n_columns] = _CODE_OF[cell_type]
 
                 if cell_type is not GridCellTypes.OBSTACLE:

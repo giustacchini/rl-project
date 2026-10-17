@@ -35,7 +35,7 @@ from snowplow.road_network_configs import MAPS
 def add_env_args(p: argparse.ArgumentParser) -> None:
     """Options that define the environment. Any of them overrides the --experiment preset."""
     p.add_argument("--experiment", choices=sorted(EXPERIMENTS), help="preset: plows / observation / algorithm")
-    p.add_argument("--map", default="network_1", choices=sorted(MAPS), help="road network (small = quick debugging)")
+    p.add_argument("--map", default="network_2", choices=sorted(MAPS), help="road network (small = quick debugging)")
     p.add_argument("--plows", type=int, help="number of snowplows (agents)")
     p.add_argument("--obs", choices=["full", "local"], help="what a plow sees: the whole map or a window")
     p.add_argument("--view", type=int, default=5, choices=[3, 5], help="window size for --obs local")
@@ -89,8 +89,10 @@ def cmd_train(args) -> None:
 
     config = build_config(args)
     preset = EXPERIMENTS.get(args.experiment, {})
+
     algo = args.algo or preset.get("algo") or ("ppo" if config.n_plows == 1 else "mappo")
     recurrent = args.recurrent or preset.get("recurrent", False)
+    map_name = preset.get("map", "network_3") or args.map  # preset overrides --map
     reward_mode = args.reward_mode or ("individual" if algo == "ppo" else "team_mean")
     ppo_config = PPOConfig(
         n_envs=args.n_envs,
@@ -102,15 +104,15 @@ def cmd_train(args) -> None:
         reward_scale=args.reward_scale,
         seed=args.seed,
     )
-    run_dir = Path(args.out or f"runs/{args.experiment or 'custom'}_{args.map}_{algo}_s{args.seed}")
+    run_dir = Path(args.out or f"runs/{args.experiment or 'custom'}_{map_name}_{algo}_s{args.seed}")
     run_dir.mkdir(parents=True, exist_ok=True)
 
     reward_transform = plow_progress_lcr(args.lcr_zeta) if args.lcr_zeta > 0 else None
     trainer = {"ppo": PPO, "mappo": MAPPO}[algo](
-        make_env_fn(args.map, config), ppo_config, adapter_kwargs(config), reward_transform=reward_transform
+        make_env_fn(map_name, config), ppo_config, adapter_kwargs(config), reward_transform=reward_transform
     )
     print(
-        f"training {algo} on map '{args.map}': {config.n_plows} plow(s), obs={config.observation}, "
+        f"training {algo} on map '{map_name}': {config.n_plows} plow(s), obs={config.observation}, "
         f"obs_dim={trainer.obs_dim}, recurrent={recurrent} -> {run_dir}"
     )
 
