@@ -20,7 +20,6 @@ SUMMARY_KEYS = (
 def summarize(episodes: list[dict]) -> dict:
     """Mean (and std of the reward) over a list of per-episode metric dicts."""
     out = {key: float(np.mean([float(ep.get(key, 0.0)) for ep in episodes])) for key in SUMMARY_KEYS}
-    out["success_rate"] = out.pop("success")
     out["std_total_reward"] = float(np.std([ep["total_reward"] for ep in episodes]))
     out["episodes"] = len(episodes)
     return out

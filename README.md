@@ -29,11 +29,11 @@ python src/main.py play --experiment exp1 --policy greedy --render
 # Run random and greedy baselines and save JSON/CSV metrics.
 python src/main.py baselines --experiment exp1 --episodes 50 --seed 1000 --out results/exp1
 
-# Quick headless check on the smaller map.
-python src/main.py baselines --map small --episodes 2 --max-steps 30
+# Quick headless check on a map.
+python src/main.py baselines --map network_1 --episodes 2 --max-steps 30
 
 # Export an episode as a GIF without opening a window.
-python src/main.py play --map small --policy random --max-steps 30 --gif results/random.gif
+python src/main.py play --map network_1 --policy random --max-steps 30 --gif results/random.gif
 
 # Train and evaluate a model (requires PyTorch).
 python src/main.py train --experiment exp1 --steps 500000 --seed 0 --out results/exp1_model
@@ -52,8 +52,12 @@ GIF export and baseline evaluation can run without one.
 | `exp3` | 2 | Full map | MAPPO |
 | `exp4` | 2 | Local window | Recurrent MAPPO |
 
-`--plows`, `--obs`, and `--view` override the environment preset. Maps are selected
-with `--map network_1` (10 rows, 19 columns) or `--map small` (8 rows, 9 columns).
+`--map`, `--plows`, `--obs`, `--view`, and `--max-steps` override the environment
+preset. Omitted values come from the preset and then `SnowplowConfig` defaults.
+The resolved map and environment configuration are saved in a training run's
+`config.json`; evaluation and model playback always load those saved values.
+Maps are selected with `--map network_1` (10 rows, 19 columns), `--map network_2`,
+or `--map network_3`.
 An episode ends on successful cleaning after snow has fallen, or at `--max-steps`.
 
 ## Code structure

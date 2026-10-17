@@ -15,6 +15,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 
 from snowplow.baselines import GreedyPolicy, RandomPolicy
@@ -33,38 +35,70 @@ from snowplow.road_network_configs import MAPS
 
 # ----------------------------------------------------------------------------- arguments
 def add_env_args(p: argparse.ArgumentParser) -> None:
-    """Options that define the environment. Any of them overrides the --experiment preset."""
+    """Options that define the environment.
+
+    Explicit command-line values override an experiment preset. Values omitted
+    on the command line come from the preset, then SnowplowConfig defaults.
+    """
     p.add_argument("--experiment", choices=sorted(EXPERIMENTS), help="preset: plows / observation / algorithm")
-    p.add_argument("--map", default="network_2", choices=sorted(MAPS), help="road network (small = quick debugging)")
+    p.add_argument("--map", choices=sorted(MAPS), help="road network (small = quick debugging)")
     p.add_argument("--plows", type=int, help="number of snowplows (agents)")
     p.add_argument("--obs", choices=["full", "local"], help="what a plow sees: the whole map or a window")
-    p.add_argument("--view", type=int, default=5, choices=[3, 5], help="window size for --obs local")
-    p.add_argument("--max-steps", type=int, default=300, help="episode length limit")
+    p.add_argument("--view", type=int, choices=[3, 5], help="window size for --obs local")
+    p.add_argument("--max-steps", type=int, help="episode length limit")
     p.add_argument("--spawn-prob", type=float, default=None, help="chance per step of a new cloud (default 0.02)")
     p.add_argument("--initial-clouds", type=int, default=None, help="clouds that already snowed at the start (default 2)")
 
 
-def build_config(args) -> SnowplowConfig:
-    """Merge the experiment preset with explicit command line options."""
+def resolve_environment(args: argparse.Namespace) -> tuple[str, SnowplowConfig]:
+    """Resolve the map and environment config used by a command."""
     preset = EXPERIMENTS.get(args.experiment, {})
     snow = {}
     if args.spawn_prob is not None:
         snow["cloud_spawn_prob"] = args.spawn_prob
     if args.initial_clouds is not None:
         snow["initial_clouds"] = args.initial_clouds
-    return SnowplowConfig(
-        n_plows=args.plows or preset.get("n_plows", 1),
-        max_steps=args.max_steps,
-        observation=args.obs or preset.get("observation", "full"),
-        view_size=args.view,
+    config_defaults = SnowplowConfig()
+    config = SnowplowConfig(
+        n_plows=args.plows if args.plows is not None else preset.get("n_plows", config_defaults.n_plows),
+        max_steps=args.max_steps if args.max_steps is not None else preset.get("max_steps", config_defaults.max_steps),
+        observation=args.obs if args.obs is not None else preset.get("observation", config_defaults.observation),
+        view_size=args.view if args.view is not None else preset.get("view_size", config_defaults.view_size),
         snow=SnowConfig(**snow),
     )
+    map_name = args.map if args.map is not None else preset.get("map", "network_3")
+    return map_name, config
+
+
+def build_config(args: argparse.Namespace) -> SnowplowConfig:
+    """Build the resolved environment config for callers that only need it."""
+    return resolve_environment(args)[1]
+
+
+def create_run_dir(args: argparse.Namespace, map_name: str, algo: str) -> Path:
+    """Create a run directory without reusing a default directory."""
+    if args.out:
+        run_dir = Path(args.out)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        return run_dir
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base = Path("runs") / f"{args.experiment or 'custom'}_{map_name}_{algo}_seed{args.seed}_{timestamp}"
+    run_dir = base
+    suffix = 1
+    while True:
+        try:
+            run_dir.mkdir(parents=True, exist_ok=False)
+            return run_dir
+        except FileExistsError:
+            run_dir = Path(f"{base}_{suffix}")
+            suffix += 1
 
 
 # ------------------------------------------------------------------------------ commands
 def cmd_baselines(args) -> None:
     """Score the non-learning policies; this is the bar a trained agent has to beat."""
-    config = build_config(args)
+    map_name, config = resolve_environment(args)
     rows = {}
     policies = [("random", RandomPolicy(seed=args.seed))]
     if config.observation == "full":  # greedy searches the whole map, so it needs the full view
@@ -72,11 +106,11 @@ def cmd_baselines(args) -> None:
     else:
         print("note: the greedy baseline needs --obs full and is skipped")
     for name, policy in policies:
-        env = make_env(args.map, config)
+        env = make_env(map_name, config)
         rows[name] = summarize(run_policy(env, policy, args.episodes, seed=args.seed))
     print_table(rows)
     if args.out:
-        write_results(Path(args.out), rows, {"map": args.map, "snowplow": config_to_dict(config)})
+        write_results(Path(args.out), rows, {"map": map_name, "snowplow": config_to_dict(config)})
 
 
 def cmd_train(args) -> None:
@@ -87,12 +121,11 @@ def cmd_train(args) -> None:
         plow_progress_lcr,
     )
 
-    config = build_config(args)
+    map_name, config = resolve_environment(args)
     preset = EXPERIMENTS.get(args.experiment, {})
 
     algo = args.algo or preset.get("algo") or ("ppo" if config.n_plows == 1 else "mappo")
     recurrent = args.recurrent or preset.get("recurrent", False)
-    map_name = preset.get("map", "network_3") or args.map  # preset overrides --map
     reward_mode = args.reward_mode or ("individual" if algo == "ppo" else "team_mean")
     ppo_config = PPOConfig(
         n_envs=args.n_envs,
@@ -104,8 +137,7 @@ def cmd_train(args) -> None:
         reward_scale=args.reward_scale,
         seed=args.seed,
     )
-    run_dir = Path(args.out or f"runs/{args.experiment or 'custom'}_{map_name}_{algo}_s{args.seed}")
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = create_run_dir(args, map_name, algo)
 
     reward_transform = plow_progress_lcr(args.lcr_zeta) if args.lcr_zeta > 0 else None
     trainer = {"ppo": PPO, "mappo": MAPPO}[algo](
@@ -116,12 +148,10 @@ def cmd_train(args) -> None:
         f"obs_dim={trainer.obs_dim}, recurrent={recurrent} -> {run_dir}"
     )
 
-    from dataclasses import asdict
-
     (run_dir / "config.json").write_text(
         json.dumps(
             {
-                "map": args.map,
+                "map": map_name,
                 "algo": algo,
                 "snowplow": config_to_dict(config),
                 "ppo": asdict(ppo_config),
@@ -136,7 +166,7 @@ def cmd_train(args) -> None:
     (run_dir / "history.json").write_text(json.dumps(history, indent=1))
 
     results = summarize(run_trainer(trainer, args.eval_episodes, seed=args.seed + 10_000))
-    write_results(run_dir, {"trained": results}, {"map": args.map, "algo": algo})
+    write_results(run_dir, {"trained": results}, {"map": map_name, "algo": algo})
     print_table({"trained": results})
     print(f"saved model, history and metrics to {run_dir}/")
 
@@ -184,10 +214,10 @@ def cmd_play(args) -> None:
             obs, new_episode, done = res.obs, False, res.done
         info = res.info.get("episode", {})
     else:
-        config = build_config(args)
+        map_name, config = resolve_environment(args)
         if args.policy == "greedy" and config.observation != "full":
             raise SystemExit("the greedy policy needs the full view (--obs full)")
-        env = make_env(args.map, config, render_mode)
+        env = make_env(map_name, config, render_mode)
         policy = RandomPolicy(args.seed) if args.policy == "random" else GreedyPolicy()
         obs, _ = env.reset(seed=args.seed)
         policy.reset()
@@ -213,7 +243,6 @@ def cmd_play(args) -> None:
 # ------------------------------------------------------------------------------- output
 def print_table(rows: dict[str, dict]) -> None:
     keys = [
-        "success_rate",
         "total_reward",
         "steps",
         "fraction_clean",
@@ -278,7 +307,7 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--eval-episodes", type=int, default=50)
     p.add_argument("--log-every", type=int, default=10, help="print every N PPO updates")
-    p.add_argument("--out", help="run directory (default runs/<experiment>_<map>_<algo>_s<seed>)")
+    p.add_argument("--out", help="run directory (default includes the current date and time)")
     p.set_defaults(func=cmd_train)
 
     p = sub.add_parser("evaluate", help="score a trained model")

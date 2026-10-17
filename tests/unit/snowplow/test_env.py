@@ -7,7 +7,7 @@ from conftest import place, set_snow
 from Enums import ACTIONS, EventType, MovementActions, SnowplowEvent
 from snowplow.config import SnowConfig, SnowplowConfig
 from snowplow.env import GRID_CHANNELS, SnowPlowEnv
-from snowplow.road_network_configs import MAPS, road_network_1, road_network_small
+from snowplow.road_network_configs import MAPS, road_network_1
 from snowplow.snow import Cloud
 
 UP, DOWN, RIGHT, LEFT, WAIT = (

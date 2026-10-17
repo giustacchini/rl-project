@@ -6,7 +6,7 @@ environment and the algorithms are the same code.
 
 EXPERIMENTS = {
     # 1 plow, sees the whole map: the first thing that must work.
-    "exp1": {"n_plows": 1, "observation": "full", "algo": "ppo", "recurrent": False, "map": "network_3"},
+    "exp1": {"n_plows": 1, "observation": "full", "algo": "ppo", "recurrent": False, "map": "network_3",},
     # 1 plow, sees only a 5x5 window: needs memory -> recurrent (GRU) policy.
     "exp2": {"n_plows": 1, "observation": "local", "algo": "ppo", "recurrent": True, "map": "network_3"},
     # several plows, everybody sees the whole map.

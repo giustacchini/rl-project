@@ -44,7 +44,7 @@ class SnowplowConfig:
     n_plows: int = 1  # number of agents (the env is N-agent from the start)
     max_steps: int = 500  # episode is truncated after this many steps
     observation: str = "full"  # "full" (sees the whole map) or "local" (sees a window)
-    view_size: int = 7  # window side for observation="local" (3 or 5)
+    view_size: int = 5  # window side for observation="local" (3 or 5)
     snow: SnowConfig = field(default_factory=SnowConfig)
 
     def __post_init__(self):
