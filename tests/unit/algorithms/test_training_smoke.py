@@ -1,4 +1,4 @@
-"""A few PPO/MAPPO updates on the small map. Skipped automatically when PyTorch is not installed."""
+"""A few PPO/MAPPO updates on the configured network map. Skipped automatically when PyTorch is not installed."""
 
 import numpy as np
 import pytest
@@ -13,7 +13,7 @@ from snowplow.factory import adapter_kwargs, make_env_fn  # noqa: E402
 def make_trainer(cls, n_plows, observation="full", recurrent=False):
     config = SnowplowConfig(n_plows=n_plows, observation=observation, max_steps=40)
     cfg = PPOConfig(n_envs=2, rollout_len=16, n_minibatches=2, epochs=2, hidden=32, recurrent=recurrent)
-    return cls(make_env_fn("small", config), cfg, adapter_kwargs(config))
+    return cls(make_env_fn("network_1", config), cfg, adapter_kwargs(config))
 
 
 @pytest.mark.parametrize("cls,n_plows,observation,recurrent", [

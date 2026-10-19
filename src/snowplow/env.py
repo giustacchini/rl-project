@@ -420,7 +420,7 @@ class SnowPlowEnv(MultiGridEnv):
             
             for agent_id, share in shares.items():
                 self.event_log.emit(
-                    SnowplowEvent.PARTIALLY_CLEARED,
+                    SnowplowEvent.CELL_CLEARED,
                     agent_id=agent_id,
                     step=self.step_count,
                     position=(x, y),

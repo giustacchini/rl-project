@@ -22,7 +22,7 @@ from pathlib import Path
 from snowplow.baselines import CooperativeGreedyPolicy, GreedyPolicy, RandomPolicy
 from snowplow.config import SnowConfig, SnowplowConfig
 from snowplow.evaluation import run_policy, run_trainer, summarize
-from snowplow.experiments import EXPERIMENTS
+from snowplow.experiments import EXPERIMENTS, get_experiment
 from snowplow.factory import (
     adapter_kwargs,
     config_from_dict,
@@ -72,40 +72,39 @@ def add_env_args(p: argparse.ArgumentParser) -> None:
         help="steps 2+ plows on the same cell need per snow level 1..max_snow (default: 1 2 3)",
     )
     p.add_argument(
-        "--exclusive-cells", action="store_true", help="forbid plows from sharing a cell (old blocking rules, no cooperative plowing)"
+        "--exclusive-cells", action=argparse.BooleanOptionalAction, default=None,
+        help="forbid plows from sharing a cell (use --no-exclusive-cells to allow sharing)"
     )
 
 
 def resolve_environment(args: argparse.Namespace) -> tuple[str, SnowplowConfig]:
     """Resolve the map and environment config used by a command."""
-    experiment = EXPERIMENTS.get(args.experiment, {})
-    env_args = experiment["env_args"]
-    algo_args = experiment["algo_args"]
-    snow_args = experiment["snow_args"]
-    snow = {}
+    preset = get_experiment(args.experiment)
+    env_values = preset["env_args"].copy()
+    map_name = args.map or env_values.pop("map", "network_3")
+    env_values.pop("map", None)
+    for cli_name, field in (
+        ("plows", "n_plows"), ("max_steps", "max_steps"),
+        ("obs", "observation"), ("view", "view_size"),
+    ):
+        value = getattr(args, cli_name, None)
+        if value is not None:
+            env_values[field] = value
+    if getattr(args, "exclusive_cells", None) is not None:
+        env_values["allow_shared_cells"] = not args.exclusive_cells
+
+    snow = preset["snow_args"].copy()
     if args.spawn_prob is not None:
-        snow["cloud_spawn_prob"] = args.cloud_spawn_prob
+        snow["cloud_spawn_prob"] = args.spawn_prob
     if args.initial_clouds is not None:
         snow["initial_clouds"] = args.initial_clouds
     if getattr(args, "fixed_spawn_prob", False):
         snow["scale_spawn_with_plows"] = False
-    # Plow times are given for levels 1..max_snow on the command line; level 0 needs no work.
-    if getattr(args, "plow_time_single", None):
-        snow["plow_time_single"] = (0, *args.plow_time_single)
-    if getattr(args, "plow_time_team", None):
-        snow["plow_time_team"] = (0, *args.plow_time_team)
-
-    config_defaults = SnowplowConfig()
-    config = SnowplowConfig(
-        n_plows=args.plows if args.plows is not None else preset.get("n_plows", config_defaults.n_plows),
-        max_steps=args.max_steps if args.max_steps is not None else preset.get("max_steps", config_defaults.max_steps),
-        observation=args.obs if args.obs is not None else preset.get("observation", config_defaults.observation),
-        view_size=args.view if args.view is not None else preset.get("view_size", config_defaults.view_size),
-        allow_shared_cells=not getattr(args, "exclusive_cells", False),
-        snow=SnowConfig(**snow),
-    )
-    map_name = args.map if args.map is not None else preset.get("map", "network_3")
-    return map_name, config
+    for field in ("plow_time_single", "plow_time_team"):
+        value = getattr(args, field, None)
+        if value is not None:
+            snow[field] = (0, *value)
+    return map_name, SnowplowConfig(**env_values, snow=SnowConfig(**snow))
 
 
 def build_config(args: argparse.Namespace) -> SnowplowConfig:
@@ -153,119 +152,182 @@ def cmd_baselines(args) -> None:
         write_results(Path(args.out), rows, {"map": map_name, "snowplow": config_to_dict(config)})
 
 
+def write_json(path: Path, value) -> None:
+    """Replace JSON atomically so readers never see a partially written history."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=1, allow_nan=False))
+    temporary.replace(path)
+
+
+def resolve_training(args, config):
+    """Resolve training and PPO options with CLI > experiment > defaults."""
+    from algorithms import PPOConfig
+
+    preset = get_experiment(args.experiment)
+    training = {"steps": 500_000, "checkpoint_every": None, **preset["training_args"]}
+    ppo = {"reward_scale": 0.1, **preset["ppo_args"]}
+    for key in ("n_envs", "rollout_len", "lr", "hidden", "recurrent", "reward_mode", "reward_scale", "seed"):
+        value = getattr(args, key, None)
+        if value is not None:
+            ppo[key] = value
+    for key in ("algo", "steps", "checkpoint_every"):
+        value = getattr(args, key, None)
+        if value is not None:
+            training[key] = value
+    training.setdefault("algo", "ppo" if config.n_plows == 1 else "mappo")
+    ppo.setdefault("reward_mode", "individual" if training["algo"] == "ppo" else "team_mean")
+    ppo.setdefault("recurrent", config.observation == "local")
+    if training["steps"] <= 0:
+        raise ValueError("--steps must be positive")
+    if training["checkpoint_every"] is not None and training["checkpoint_every"] < 0:
+        raise ValueError("--checkpoint-every must be >= 0 (0 disables checkpoints)")
+    return training, PPOConfig(**ppo)
+
+
 def cmd_train(args) -> None:
-    from algorithms import (  # imported here: needs torch
-        MAPPO,
-        PPO,
-        PPOConfig,
-        plow_progress_lcr,
-    )
+    from algorithms import MAPPO, PPO, plow_progress_lcr
 
-    # Read experiment setup configuration
-    # TODO: FIX CORRECT ENV MAPPINGS
-    map_name, config = resolve_environment(args)
-    preset = EXPERIMENTS.get(args.experiment, {})
-
-    algo = args.algo or preset.get("algo") or ("ppo" if config.n_plows == 1 else "mappo")
-    recurrent = args.recurrent or preset.get("recurrent", False)
-    reward_mode = args.reward_mode or ("individual" if algo == "ppo" else "team_mean")
-    checkpoint_every = args.checkpoint_every or preset.get("checkpoint_every")
-
-    ppo_config = PPOConfig(
-        n_envs=args.n_envs,
-        rollout_len=args.rollout_len,
-        lr=args.lr,
-        hidden=args.hidden,
-        recurrent=recurrent,
-        reward_mode=reward_mode,
-        reward_scale=args.reward_scale,
-        seed=args.seed,
-    )
-    run_dir = create_run_dir(args, map_name, algo)
-    print("run_dir:", run_dir)
-
-    reward_transform = plow_progress_lcr(args.lcr_zeta) if args.lcr_zeta > 0 else None
-    trainer = {"ppo": PPO, "mappo": MAPPO}[algo](
-        make_env_fn(map_name, config), ppo_config, adapter_kwargs(config), reward_transform=reward_transform
-    )
-    print(
-        f"training {algo} on map '{map_name}': {config.n_plows} plow(s), obs={config.observation}, "
-        f"obs_dim={trainer.obs_dim}, recurrent={recurrent}"
-    )
-
-    (run_dir / "config.json").write_text(
-        json.dumps(
-            {
-                "map": map_name,
-                "algo": algo,
-                "snowplow": config_to_dict(config),
-                "ppo": asdict(ppo_config),
-                "steps": args.steps,
-                "lcr_zeta": args.lcr_zeta,
-            },
-            indent=1,
+    if args.resume:
+        # Resume uses the checkpoint's environment and optimizer configuration.
+        override_names = (
+            "experiment", "map", "plows", "obs", "view", "max_steps", "spawn_prob",
+            "initial_clouds", "plow_time_single", "plow_time_team", "exclusive_cells",
+            "algo", "n_envs", "rollout_len", "lr", "hidden", "recurrent",
+            "reward_mode", "reward_scale", "seed",
         )
-    )
+        if any(getattr(args, name, None) is not None for name in override_names) or args.fixed_spawn_prob or args.lcr_zeta:
+            raise ValueError("--resume restores saved settings; only --steps, --checkpoint-every, logging/evaluation and --out may change")
+        trainer, map_name, config = load_trainer(Path(args.resume), resume=True)
+        metadata = dict(trainer.run_config)
+        training = {
+            "steps": args.steps if args.steps is not None else metadata["steps"],
+            "checkpoint_every": args.checkpoint_every if args.checkpoint_every is not None else metadata.get("checkpoint_every"),
+        }
+        if training["steps"] <= trainer.env_steps:
+            raise ValueError("--steps must exceed the checkpoint's completed environment steps")
+        if training["checkpoint_every"] is not None and training["checkpoint_every"] < 0:
+            raise ValueError("--checkpoint-every must be >= 0")
+        algo = metadata["algo"]
+        source = Path(args.resume)
+        run_dir = Path(args.out) if args.out else (source if source.is_dir() else source.parent)
+        if run_dir.name == "checkpoints" and not args.out:
+            run_dir = run_dir.parent
+        run_dir.mkdir(parents=True, exist_ok=True)
+        metadata["resumed_from"] = str(source.resolve())
+        metadata["resume_mode"] = "optimizer and progress restored; episodes restart"
+        metadata.update(training)
+    else:
+        map_name, config = resolve_environment(args)
+        training, ppo_config = resolve_training(args, config)
+        algo = training["algo"]
+        if algo == "ppo" and config.n_plows != 1:
+            raise ValueError("PPO requires one plow; select --algo mappo for multiple plows")
+        reward_transform = plow_progress_lcr(args.lcr_zeta) if args.lcr_zeta > 0 else None
+        trainer = {"ppo": PPO, "mappo": MAPPO}[algo](
+            make_env_fn(map_name, config), ppo_config, adapter_kwargs(config), reward_transform=reward_transform
+        )
+        args.seed = ppo_config.seed
+        run_dir = create_run_dir(args, map_name, algo)
+        if (run_dir / "config.json").exists() or (run_dir / "model.pt").exists():
+            raise ValueError("Run directory already contains training artifacts; use --resume or a new --out")
+        metadata = {
+            "map": map_name, "algo": algo,
+            "snowplow": config_to_dict(config), "ppo": asdict(ppo_config),
+            "steps": training["steps"], "checkpoint_every": training["checkpoint_every"],
+            "lcr_zeta": args.lcr_zeta,
+            "history_metrics": "rolling means over the last 20 completed training episodes; null before completion",
+        }
 
-    # Here is the training start point
-    history = trainer.learn(args.steps, log_every=args.log_every, callback=make_checkpoint_callback(trainer, run_dir, checkpoint_every))
+    trainer.run_config = metadata
+    write_json(run_dir / "config.json", metadata)
+    write_json(run_dir / "history.json", trainer.history)
+    checkpoint = make_checkpoint_callback(trainer, run_dir, training["checkpoint_every"])
+
+    def on_update(stats):
+        write_json(run_dir / "history.json", trainer.history)
+        if checkpoint:
+            checkpoint(stats)
+
+    print(f"training {algo} on '{map_name}': {config.n_plows} plow(s), obs={config.observation} -> {run_dir}")
+    trainer.learn(training["steps"], log_every=args.log_every, callback=on_update)
     trainer.save(str(run_dir / "model.pt"))
-    (run_dir / "history.json").write_text(json.dumps(history, indent=1))
-
-    results = summarize(run_trainer(trainer, args.eval_episodes, seed=args.seed + 10_000))
+    results = summarize(run_trainer(trainer, args.eval_episodes, seed=trainer.cfg.seed + 10_000))
     write_results(run_dir, {"trained": results}, {"map": map_name, "algo": algo})
     print_table({"trained": results})
     print(f"saved model, history and metrics to {run_dir}/")
 
 
 def make_checkpoint_callback(trainer, run_dir: Path, every: int | None):
-    """Callback for trainer.learn() that saves the model every `every` environment steps.
-
-    Checkpoints go to <run_dir>/checkpoints/model_step_<env steps>.pt. The trainer reports its
-    step count once per update (rollout_len x n_envs steps), so a checkpoint is written on the
-    first update that reaches or passes each multiple of `every`. Returns None when disabled.
-    """
-    print("every:", every)
-    if not every or every <= 0:
+    """Save at the first completed update crossing each environment-step interval."""
+    if not every:
         return None
+    if every < 0:
+        raise ValueError("checkpoint interval must be positive or 0 to disable")
     checkpoint_dir = run_dir / "checkpoints"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    next_save = {"at": every}  # mutable so the closure can advance it
+    next_save = (getattr(trainer, "env_steps", 0) // every + 1) * every
 
     def callback(stats: dict) -> None:
+        nonlocal next_save
         steps = int(stats["env_steps"])
-        if steps < next_save["at"]:
-            return
-        path = checkpoint_dir / f"model_step_{steps}.pt"
-        trainer.save(str(path))
-        print(f"checkpoint saved: {path}")
-        while next_save["at"] <= steps:  # skip multiples already passed by a long update
-            next_save["at"] += every
+        if steps >= next_save:
+            path = checkpoint_dir / f"model_step_{steps}.pt"
+            trainer.save(str(path))
+            print(f"checkpoint saved: {path}")
+            next_save = (steps // every + 1) * every
 
     return callback
 
 
-def load_trainer(run_dir: Path, checkpoint: str | None = None):
-    """Rebuild a trainer from a run directory (config.json) and load its weights.
-
-    By default the final model.pt is loaded; `checkpoint` selects another weights file, either a
-    path or a file name inside <run_dir>/checkpoints (e.g. model_step_100000.pt).
-    """
-    from algorithms import MAPPO, PPO, PPOConfig  # needs torch
-
-    saved = json.loads((run_dir / "config.json").read_text())
-    config = config_from_dict(saved["snowplow"])
-    trainer = {"ppo": PPO, "mappo": MAPPO}[saved["algo"]](
-        make_env_fn(saved["map"], config), PPOConfig(**saved["ppo"]), adapter_kwargs(config)
-    )
-    weights = run_dir / "model.pt"
+def checkpoint_path(run: Path, checkpoint: str | None = None) -> Path:
     if checkpoint:
-        weights = Path(checkpoint)
-        if not weights.exists():
-            weights = run_dir / "checkpoints" / checkpoint
-        if not weights.exists():
-            raise SystemExit(f"checkpoint not found: {checkpoint}")
-    trainer.load(str(weights))
+        selected = Path(checkpoint)
+        candidates = (selected,) if selected.is_absolute() else (
+            run / checkpoint, run / "checkpoints" / checkpoint, selected,
+        )
+    else:
+        candidates = (run / "model.pt",) if run.is_dir() else (run,)
+    for path in candidates:
+        if path.is_file():
+            return path
+    if not checkpoint and run.is_dir():
+        checkpoints = [
+            path for path in (run / "checkpoints").glob("model_step_*.pt")
+            if path.stem.removeprefix("model_step_").isdigit()
+        ]
+        if checkpoints:
+            return max(checkpoints, key=lambda path: int(path.stem.removeprefix("model_step_")))
+    raise ValueError(f"checkpoint not found: {checkpoint or run}")
+
+
+def load_trainer(run_dir: Path, checkpoint: str | None = None, resume: bool = False):
+    """Load a run, checkpoint name/path, or standalone self-contained checkpoint.
+
+    Legacy weights use the accompanying config.json and remain inference-only.
+    """
+    import torch
+    from algorithms import MAPPO, PPO, PPOConfig, plow_progress_lcr
+
+    weights = checkpoint_path(run_dir, checkpoint)
+    payload = torch.load(weights, map_location="cpu", weights_only=True)
+    saved = payload.get("run_config")
+    if not saved:
+        configs = (run_dir / "config.json", weights.parent / "config.json", weights.parent.parent / "config.json")
+        config_path = next((path for path in configs if path.is_file()), None)
+        if config_path is None:
+            raise ValueError("Legacy weights require the run's config.json")
+        saved = json.loads(config_path.read_text())
+    config = config_from_dict(saved["snowplow"])
+    ppo_config = PPOConfig(**saved["ppo"])
+    if ppo_config.device.startswith("cuda") and not torch.cuda.is_available():
+        ppo_config.device = "cpu"
+    transform = plow_progress_lcr(saved.get("lcr_zeta", 0)) if resume and saved.get("lcr_zeta", 0) > 0 else None
+    trainer = {"ppo": PPO, "mappo": MAPPO}[saved["algo"]](
+        make_env_fn(saved["map"], config), ppo_config, adapter_kwargs(config), reward_transform=transform
+    )
+    trainer.load(str(weights), resume=resume)
+    trainer.run_config = saved
     return trainer, saved["map"], config
 
 
@@ -361,7 +423,7 @@ def write_results(directory: Path, rows: dict, meta: dict, name: str = "metrics"
             writer.writerow([policy] + [row[k] for k in first])
 
 
-def main() -> None:
+def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -388,16 +450,16 @@ def main() -> None:
     p = sub.add_parser("train", help="train PPO (1 plow) or MAPPO (several plows)")
     add_env_args(p)
     p.add_argument("--algo", choices=["ppo", "mappo"], help="default: from the experiment, else by number of plows")
-    p.add_argument("--steps", type=int, default=500_000, help="total environment steps")
-    p.add_argument("--recurrent", action="store_true", help="GRU policy (needed for --obs local)")
+    p.add_argument("--steps", type=int, default=None, help="total environment steps")
+    p.add_argument("--recurrent", action=argparse.BooleanOptionalAction, default=None, help="GRU policy (needed for --obs local)")
     p.add_argument("--reward-mode", choices=["individual", "team_sum", "team_mean"])
     p.add_argument("--lcr-zeta", type=float, default=0.0, help="MAPPO-LCR reward shaping strength (0 = off)")
-    p.add_argument("--reward-scale", type=float, default=0.1, help="multiply training rewards by this (reporting stays raw)")
-    p.add_argument("--n-envs", type=int, default=8)
-    p.add_argument("--rollout-len", type=int, default=128)
-    p.add_argument("--lr", type=float, default=3e-4)
-    p.add_argument("--hidden", type=int, default=128)
-    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--reward-scale", type=float, default=None, help="multiply training rewards by this (reporting stays raw)")
+    p.add_argument("--n-envs", type=int, default=None)
+    p.add_argument("--rollout-len", type=int, default=None)
+    p.add_argument("--lr", type=float, default=None)
+    p.add_argument("--hidden", type=int, default=None)
+    p.add_argument("--seed", type=int, default=None)
     p.add_argument("--eval-episodes", type=int, default=50)
     p.add_argument(
         "--checkpoint-every",
@@ -406,6 +468,7 @@ def main() -> None:
         metavar="STEPS",
         help="also save the model every STEPS environment steps to <run>/checkpoints/",
     )
+    p.add_argument("--resume", help="resume a run directory or checkpoint; --steps is the total target budget")
     p.add_argument("--log-every", type=int, default=10, help="print every N PPO updates")
     p.add_argument("--out", help="run directory (default includes the current date and time)")
     p.set_defaults(func=cmd_train)
@@ -418,7 +481,7 @@ def main() -> None:
     p.add_argument("--deterministic", action="store_true")
     p.set_defaults(func=cmd_evaluate)
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     args.func(args)
 
 

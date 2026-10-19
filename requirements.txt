@@ -3,5 +3,6 @@ numpy
 torch
 mosaic-multigrid
 pillow
+matplotlib
 pytest
 pytest-cov

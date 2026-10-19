@@ -111,6 +111,10 @@ New clouds appear with probability `cloud_spawn_prob` (default 0.02) **per plow*
 each step: 0.02 with one plow, 0.10 with five. Use `--spawn-prob` to change the
 per-plow value and `--fixed-spawn-prob` to stop the scaling.
 
+See [training, live history, resume, and plots](docs/TRAINING.md) for configuration
+precedence, artifact formats, and runnable examples. Plot reward against updates
+with `python src/evaluate.py <run-directory>`.
+
 Training can save intermediate models with `--checkpoint-every STEPS`; they go to
 `<run>/checkpoints/model_step_<steps>.pt`. Load one with
 `evaluate --run <run> --checkpoint model_step_100000.pt` (also works for

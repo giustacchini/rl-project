@@ -11,7 +11,7 @@ from snowplow.factory import adapter_kwargs, make_env
 @pytest.mark.parametrize("n_plows,observation", [(1, "full"), (2, "full"), (2, "local")])
 def test_adapter_produces_fixed_shape_arrays_and_masks(n_plows, observation):
     config = SnowplowConfig(n_plows=n_plows, observation=observation, max_steps=20)
-    adapter = ParallelEnvAdapter(make_env("small", config), **adapter_kwargs(config))
+    adapter = ParallelEnvAdapter(make_env("network_1", config), **adapter_kwargs(config))
     obs, state, alive = adapter.reset(seed=0)
     assert obs.shape == (n_plows, adapter.obs_dim) and state.shape == (adapter.state_dim,)
     assert alive.tolist() == [1.0] * n_plows
@@ -28,10 +28,10 @@ def test_adapter_produces_fixed_shape_arrays_and_masks(n_plows, observation):
 
 def test_adapter_sums_to_the_team_reward():
     config = SnowplowConfig(n_plows=2, max_steps=5)
-    adapter = ParallelEnvAdapter(make_env("small", config), **adapter_kwargs(config))
+    adapter = ParallelEnvAdapter(make_env("network_1", config), **adapter_kwargs(config))
     adapter.reset(seed=0)
     total = 0.0
     for _ in range(5):
-        res = adapter.step(np.array([0, 0]))  # both wait: -2 each
+        res = adapter.step(np.array([0, 0]))  # waiting may perform rewarded plowing
         total += res.reward.sum()
-    assert total == 0.0
+    assert total == pytest.approx(res.info["episode"]["total_reward"])
