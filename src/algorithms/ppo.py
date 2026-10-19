@@ -63,8 +63,9 @@ class PPOConfig:
         Adam lr 1e-3, clip 0.2, GAE lambda 0.95, entropy 0.001, value-loss weight 0.5,
         gamma 0.99, 3-layer (FC-ReLU-FC-ReLU-FC) actor and critic.
         The paper does not state epochs / minibatches / hidden width, so those keep our defaults."""
-        base = dict(lr=1e-3, clip=0.2, gae_lambda=0.95, ent_coef=0.001, vf_coef=0.5, gamma=0.99,
-                    layers=2, activation="relu", anneal_lr=False)
+        base = dict(
+            lr=1e-3, clip=0.2, gae_lambda=0.95, ent_coef=0.001, vf_coef=0.5, gamma=0.99, layers=2, activation="relu", anneal_lr=False
+        )
         base.update(overrides)
         return cls(**base)
 
@@ -136,6 +137,7 @@ class _PPOBase:
                 to every step before training. This is the hook for reward
                 shaping such as MAPPO-CLR-style local cooperation rewards.
         """
+        # Here is the PPO config being read on initialization
         self.cfg = config or PPOConfig()
         set_seed(self.cfg.seed)
         self.rng = np.random.default_rng(self.cfg.seed)
@@ -275,9 +277,7 @@ class _PPOBase:
         data["h_a0"], data["h_c0"] = h_a0, h_c0
         values = data["val"]
         next_values = torch.cat([values[1:], last_v[None]], dim=0)
-        data["adv"], data["ret"] = compute_gae(
-            data["rew"], values, next_values, data["term"], self.cfg.gamma, self.cfg.gae_lambda
-        )
+        data["adv"], data["ret"] = compute_gae(data["rew"], values, next_values, data["term"], self.cfg.gamma, self.cfg.gae_lambda)
         return data
 
     @torch.no_grad()
@@ -335,8 +335,10 @@ class _PPOBase:
         return {k: v / max(n_updates, 1) for k, v in stats.items()}
 
     # ------------------------------------------------------------ public API
+    # =========== Train method ===========
     def learn(self, total_env_steps: int, log_every: int = 10, callback: Callable[[dict], None] | None = None) -> list[dict]:
         """Train for roughly `total_env_steps` (summed over the parallel envs)."""
+        # Rollout length / number of environments
         per_update = self.cfg.rollout_len * self.E
         n_updates = max(1, total_env_steps // per_update)
         history = []
@@ -359,7 +361,7 @@ class _PPOBase:
             if log_every and (u + 1) % log_every == 0:
                 print(
                     f"[{type(self).__name__}] upd {u + 1}/{n_updates}  steps {self.env_steps}  "
-                    f"return {stats['mean_return']:.2f}  len {stats['mean_ep_len']:.0f}  "
+                    f"mean return {stats['mean_return']:.2f}  len {stats['mean_ep_len']:.0f}  "
                     f"ent {stats['entropy']:.2f}  kl {stats['approx_kl']:.4f}"
                 )
         return history

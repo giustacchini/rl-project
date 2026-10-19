@@ -46,26 +46,45 @@ def add_env_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--obs", choices=["full", "local"], help="what a plow sees: the whole map or a window")
     p.add_argument("--view", type=int, choices=[3, 5], help="window size for --obs local")
     p.add_argument("--max-steps", type=int, help="episode length limit")
-    p.add_argument("--spawn-prob", type=float, default=None,
-                   help="chance per step of a new cloud PER PLOW: the real chance is this x number of plows (default 0.02)")
-    p.add_argument("--fixed-spawn-prob", action="store_true",
-                   help="do not scale the cloud spawn chance with the number of plows")
+    p.add_argument(
+        "--spawn-prob",
+        type=float,
+        default=None,
+        help="chance per step of a new cloud PER PLOW: the real chance is this x number of plows (default 0.02)",
+    )
+    p.add_argument("--fixed-spawn-prob", action="store_true", help="do not scale the cloud spawn chance with the number of plows")
     p.add_argument("--initial-clouds", type=int, default=None, help="clouds that already snowed at the start (default 2)")
     # Cooperative plowing (see SnowConfig.plow_time_single / plow_time_team).
-    p.add_argument("--plow-time-single", type=int, nargs="+", default=None, metavar="T",
-                   help="steps ONE plow needs per snow level 1..max_snow (default: 1 4 8)")
-    p.add_argument("--plow-time-team", type=int, nargs="+", default=None, metavar="T",
-                   help="steps 2+ plows on the same cell need per snow level 1..max_snow (default: 1 2 3)")
-    p.add_argument("--exclusive-cells", action="store_true",
-                   help="forbid plows from sharing a cell (old blocking rules, no cooperative plowing)")
+    p.add_argument(
+        "--plow-time-single",
+        type=int,
+        nargs="+",
+        default=None,
+        metavar="T",
+        help="steps ONE plow needs per snow level 1..max_snow (default: 1 4 8)",
+    )
+    p.add_argument(
+        "--plow-time-team",
+        type=int,
+        nargs="+",
+        default=None,
+        metavar="T",
+        help="steps 2+ plows on the same cell need per snow level 1..max_snow (default: 1 2 3)",
+    )
+    p.add_argument(
+        "--exclusive-cells", action="store_true", help="forbid plows from sharing a cell (old blocking rules, no cooperative plowing)"
+    )
 
 
 def resolve_environment(args: argparse.Namespace) -> tuple[str, SnowplowConfig]:
     """Resolve the map and environment config used by a command."""
-    preset = EXPERIMENTS.get(args.experiment, {})
+    experiment = EXPERIMENTS.get(args.experiment, {})
+    env_args = experiment["env_args"]
+    algo_args = experiment["algo_args"]
+    snow_args = experiment["snow_args"]
     snow = {}
     if args.spawn_prob is not None:
-        snow["cloud_spawn_prob"] = args.spawn_prob
+        snow["cloud_spawn_prob"] = args.cloud_spawn_prob
     if args.initial_clouds is not None:
         snow["initial_clouds"] = args.initial_clouds
     if getattr(args, "fixed_spawn_prob", False):
@@ -75,6 +94,7 @@ def resolve_environment(args: argparse.Namespace) -> tuple[str, SnowplowConfig]:
         snow["plow_time_single"] = (0, *args.plow_time_single)
     if getattr(args, "plow_time_team", None):
         snow["plow_time_team"] = (0, *args.plow_time_team)
+
     config_defaults = SnowplowConfig()
     config = SnowplowConfig(
         n_plows=args.plows if args.plows is not None else preset.get("n_plows", config_defaults.n_plows),
@@ -141,12 +161,16 @@ def cmd_train(args) -> None:
         plow_progress_lcr,
     )
 
+    # Read experiment setup configuration
+    # TODO: FIX CORRECT ENV MAPPINGS
     map_name, config = resolve_environment(args)
     preset = EXPERIMENTS.get(args.experiment, {})
 
     algo = args.algo or preset.get("algo") or ("ppo" if config.n_plows == 1 else "mappo")
     recurrent = args.recurrent or preset.get("recurrent", False)
     reward_mode = args.reward_mode or ("individual" if algo == "ppo" else "team_mean")
+    checkpoint_every = args.checkpoint_every or preset.get("checkpoint_every")
+
     ppo_config = PPOConfig(
         n_envs=args.n_envs,
         rollout_len=args.rollout_len,
@@ -158,6 +182,7 @@ def cmd_train(args) -> None:
         seed=args.seed,
     )
     run_dir = create_run_dir(args, map_name, algo)
+    print("run_dir:", run_dir)
 
     reward_transform = plow_progress_lcr(args.lcr_zeta) if args.lcr_zeta > 0 else None
     trainer = {"ppo": PPO, "mappo": MAPPO}[algo](
@@ -165,7 +190,7 @@ def cmd_train(args) -> None:
     )
     print(
         f"training {algo} on map '{map_name}': {config.n_plows} plow(s), obs={config.observation}, "
-        f"obs_dim={trainer.obs_dim}, recurrent={recurrent} -> {run_dir}"
+        f"obs_dim={trainer.obs_dim}, recurrent={recurrent}"
     )
 
     (run_dir / "config.json").write_text(
@@ -181,7 +206,9 @@ def cmd_train(args) -> None:
             indent=1,
         )
     )
-    history = trainer.learn(args.steps, log_every=args.log_every, callback=make_checkpoint_callback(trainer, run_dir, args.checkpoint_every))
+
+    # Here is the training start point
+    history = trainer.learn(args.steps, log_every=args.log_every, callback=make_checkpoint_callback(trainer, run_dir, checkpoint_every))
     trainer.save(str(run_dir / "model.pt"))
     (run_dir / "history.json").write_text(json.dumps(history, indent=1))
 
@@ -198,6 +225,7 @@ def make_checkpoint_callback(trainer, run_dir: Path, every: int | None):
     step count once per update (rollout_len x n_envs steps), so a checkpoint is written on the
     first update that reaches or passes each multiple of `every`. Returns None when disabled.
     """
+    print("every:", every)
     if not every or every <= 0:
         return None
     checkpoint_dir = run_dir / "checkpoints"
@@ -371,8 +399,13 @@ def main() -> None:
     p.add_argument("--hidden", type=int, default=128)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--eval-episodes", type=int, default=50)
-    p.add_argument("--checkpoint-every", type=int, default=None, metavar="STEPS",
-                   help="also save the model every STEPS environment steps to <run>/checkpoints/")
+    p.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=None,
+        metavar="STEPS",
+        help="also save the model every STEPS environment steps to <run>/checkpoints/",
+    )
     p.add_argument("--log-every", type=int, default=10, help="print every N PPO updates")
     p.add_argument("--out", help="run directory (default includes the current date and time)")
     p.set_defaults(func=cmd_train)
