@@ -60,7 +60,7 @@ from snowplow import road_map as rm
 from snowplow.cell import GridCell
 from snowplow.config import SnowplowConfig
 from snowplow.encoding import encode_state
-from snowplow.rewards import make_snowplow_reward_calculator
+from snowplow.rewards import make_snowplow_reward_calculator, snow_level_reward
 from snowplow.road_map import RoadMap
 from snowplow.road_network_configs import road_network_1
 from snowplow.snow import SnowField
@@ -435,7 +435,7 @@ class SnowPlowEnv(MultiGridEnv):
                     position=(x, y),
                     removed=removed,
                     n_plows=len(shares),
-                    reward_scale=removed * share / total,
+                    reward_scale=snow_level_reward(removed) * share / total,
                 )
             street = int(self.road_map.street_id[y, x])
             contributors.setdefault(street, set()).update(shares)
