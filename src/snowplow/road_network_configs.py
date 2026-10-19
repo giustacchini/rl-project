@@ -9,12 +9,13 @@ A map is a plain dict:
     "obstacles":     buildings / blocked terrain
 
 and every entry is a rectangle {"position": (row, column), "size": (rows, columns)}.
-All four categories must tile the whole grid without overlapping.
+Unassigned cells become obstacles. Overlapping rectangles follow the category
+priority defined in RoadMap.from_config; street membership uses the final layout.
 
 NOTE ON "STREETS": each rectangle in "roads" counts as ONE secondary street and
 each rectangle in "highways" / "intersections" counts as ONE main street. The
-street-cleared rewards are given when all cells of such a rectangle are
-snow-free, so splitting or merging rectangles changes what "a street" is.
+street-cleared metrics are recorded when its remaining cells are snow-free.
+Splitting or merging rectangles therefore changes street-completion counts.
 """
 
 road_network_1 = {  # 10 x 19, 107 drivable cells: the main map of the project

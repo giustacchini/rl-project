@@ -21,6 +21,8 @@ SUMMARY_KEYS = (
 
 def summarize(episodes: list[dict]) -> dict:
     """Mean (and std of the reward) over a list of per-episode metric dicts."""
+    if not episodes:
+        raise ValueError("At least one episode is required for evaluation")
     out = {key: float(np.mean([float(ep.get(key, 0.0)) for ep in episodes])) for key in SUMMARY_KEYS}
     out["std_total_reward"] = float(np.std([ep["total_reward"] for ep in episodes]))
     out["episodes"] = len(episodes)
@@ -29,6 +31,8 @@ def summarize(episodes: list[dict]) -> dict:
 
 def run_policy(env, policy, episodes: int, seed: int = 1000) -> list[dict]:
     """Evaluate `policy(obs_dict) -> {plow_id: action}` on a raw SnowPlowEnv. Episode i uses seed+i."""
+    if episodes < 1:
+        raise ValueError("episodes must be >= 1")
     results = []
     for i in range(episodes):
         obs, _ = env.reset(seed=seed + i)
@@ -42,19 +46,29 @@ def run_policy(env, policy, episodes: int, seed: int = 1000) -> list[dict]:
 
 
 def run_trainer(trainer, episodes: int, seed: int = 1000, deterministic: bool = False) -> list[dict]:
-    """Evaluate a trained PPO/MAPPO object (its policy runs through the adapter, with action masks)."""
+    """Evaluate with seeded environment and policy sampling, preserving training RNG."""
+    import torch
+
     from algorithms.adapter import ParallelEnvAdapter  # local import: needs torch only for trainers
 
+    if episodes < 1:
+        raise ValueError("episodes must be >= 1")
     adapter = ParallelEnvAdapter(trainer.env_fn(), **trainer.adapter_kwargs)
-    act = trainer.make_policy(deterministic)
     results = []
-    for i in range(episodes):
-        obs, _, _ = adapter.reset(seed=seed + i)
-        new_episode = True
-        while True:
-            res = adapter.step(act(obs, adapter.mask, new_episode))
-            obs, new_episode = res.obs, False
-            if res.done:
-                results.append(res.info["episode"])
-                break
+    devices = [trainer.dev.index or 0] if trainer.dev.type == "cuda" else []
+    try:
+        with torch.random.fork_rng(devices=devices):
+            torch.manual_seed(seed)
+            act = trainer.make_policy(deterministic)
+            for i in range(episodes):
+                obs, _, _ = adapter.reset(seed=seed + i)
+                new_episode = True
+                while True:
+                    res = adapter.step(act(obs, adapter.mask, new_episode))
+                    obs, new_episode = res.obs, False
+                    if res.done:
+                        results.append(res.info["episode"])
+                        break
+    finally:
+        adapter.env.close()
     return results

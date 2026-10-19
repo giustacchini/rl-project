@@ -1,6 +1,6 @@
 """The static part of the snowplow world: terrain, traffic rules and streets.
 
-Everything in here is computed ONCE from a map dict (see snowplow/maps.py) and
+Everything in here is computed ONCE from a map dict (see road_network_configs.py) and
 never changes during an episode. It is stored as plain numpy arrays indexed
 [row, column] = [y, x]:
 
@@ -15,8 +15,7 @@ never changes during an episode. It is stored as plain numpy arrays indexed
 
 TRAFFIC RULES (one rule per terrain type)
   ROAD          two-way: can move into any neighboring cell that is not an obstacle.
-  HIGHWAY       one-way lane. The highway is horizontal and two lanes wide: the
-                northern lane flows LEFT (west), the southern lane flows RIGHT (east).
+  HIGHWAY       one-way lane; nearby obstacles determine its horizontal/vertical flow.
   INTERSECTION  can move in every direction except "against the lane" it belongs
                 to. It is the only place where a plow can change lane or turn
                 onto a secondary street.
@@ -157,41 +156,56 @@ class RoadMap:
     # ------------------------------------------------------------------ build
     @classmethod
     def from_config(cls, road_network: dict) -> "RoadMap":
-        """Expand a map dict (rectangles) into arrays and validate it."""
+        """Expand rectangles, with later terrain layers replacing earlier cells.
+
+        Category priority follows GridCellTypes: obstacles, roads, intersections,
+        highways. Unassigned cells become obstacles. Connectivity is an optional
+        diagnostic through _validate(), not required for fixed-horizon episodes.
+        """
         height, width = road_network["size"]
         if height < 3 or width < 3:  # limit of mosaic_multigrid's Grid
             raise ValueError(f"maps must be at least 3x3 cells, got {height}x{width}")
         codes = np.full((height, width), -1, dtype=np.int8)  # -1 = not assigned yet
         street_id = np.full((height, width), -1, dtype=np.int16)
-        street_cells: list[tuple[np.ndarray, np.ndarray]] = []
         street_is_main: list[bool] = []
 
         for category, cell_type in _CATEGORIES.items():
             for rect in road_network.get(category, []):
                 row, column = rect["position"]
                 n_rows, n_columns = rect["size"]
-                if not (0 <= row and 0 <= column and row + n_rows <= height and column + n_columns <= width):
+                if not (n_rows > 0 and n_columns > 0 and 0 <= row and 0 <= column and row + n_rows <= height and column + n_columns <= width):
                     raise ValueError(f"{category} rectangle {rect} does not fit in a {height}x{width} map")
-                # if (codes[row : row + n_rows, column : column + n_columns] != -1).any():
-                #     raise ValueError(f"{category} rectangle {rect} overlaps another rectangle")
                 codes[row : row + n_rows, column : column + n_columns] = _CODE_OF[cell_type]
 
                 if cell_type is not GridCellTypes.OBSTACLE:
-                    # One rectangle = one street (see snowplow/maps.py).
+                    # One rectangle = one candidate street; overlaps are normalized below.
                     ys, xs = np.mgrid[row : row + n_rows, column : column + n_columns]
-                    street_id[ys, xs] = len(street_cells)
-                    street_cells.append((ys.ravel(), xs.ravel()))
+                    street_id[ys, xs] = len(street_is_main)
                     street_is_main.append(cell_type in (GridCellTypes.HIGHWAY, GridCellTypes.INTERSECTION))
 
         # Treat every unassigned cell as an obstacle in the completed map.
         codes[codes == -1] = OBSTACLE
+        if not (codes != OBSTACLE).any():
+            raise ValueError("Map must contain at least one drivable cell")
+
+        # Rebuild street membership from the final layout. An overlaid cell belongs
+        # only to its final street, not to every rectangle originally covering it.
+        street_id[codes == OBSTACLE] = -1
+        final_ids = np.full_like(street_id, -1)
+        final_cells, final_main = [], []
+        for old_id, is_main in enumerate(street_is_main):
+            ys, xs = np.nonzero(street_id == old_id)
+            if len(ys):
+                final_ids[ys, xs] = len(final_cells)
+                final_cells.append((ys, xs))
+                final_main.append(is_main)
 
         road_map = cls(
             codes=codes,
             allowed=compute_allowed_moves(codes),
-            street_id=street_id,
-            street_is_main=np.array(street_is_main, dtype=bool),
-            street_cells=tuple(street_cells),
+            street_id=final_ids,
+            street_is_main=np.array(final_main, dtype=bool),
+            street_cells=tuple(final_cells),
         )
         return road_map
 

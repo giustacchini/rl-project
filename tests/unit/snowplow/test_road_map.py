@@ -94,12 +94,15 @@ def test_invalid_maps_are_rejected():
         RoadMap.from_config(dict(base, size=(2, 2), roads=[{"position": (0, 0), "size": (2, 2)}]))
 
     overlap = dict(base, obstacles=[{"position": (0, 0), "size": (1, 1)}])
-    with pytest.raises(ValueError, match="overlaps"):
-        RoadMap.from_config(overlap)
+    # Roads overlay the obstacle layer; membership follows the final terrain.
+    overlaid = RoadMap.from_config(overlap)
+    assert (overlaid.codes == ROAD).all()
+    assert sum(len(ys) for ys, _ in overlaid.street_cells) == 9
 
     missing = dict(base, roads=[{"position": (0, 0), "size": (2, 3)}])
-    with pytest.raises(ValueError, match="belong to no category"):
-        RoadMap.from_config(missing)
+    filled = RoadMap.from_config(missing)
+    assert (filled.codes[2] == OBSTACLE).all()
+    assert (filled.street_id[2] == -1).all()
 
     outside = dict(base, roads=[{"position": (0, 0), "size": (4, 4)}])
     with pytest.raises(ValueError, match="does not fit"):
@@ -114,4 +117,9 @@ def test_invalid_maps_are_rejected():
         "obstacles": [{"position": (0, 1), "size": (3, 1)}],
     }
     with pytest.raises(ValueError, match="not strongly connected"):
-        RoadMap.from_config(split)
+        RoadMap.from_config(split)._validate()
+
+    with pytest.raises(ValueError, match="does not fit"):
+        RoadMap.from_config(dict(base, roads=[{"position": (0, 0), "size": (0, 3)}]))
+    with pytest.raises(ValueError, match="drivable"):
+        RoadMap.from_config(dict(base, roads=[]))

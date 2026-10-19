@@ -66,7 +66,7 @@ def test_same_seed_same_episode_different_seed_different_start():
 def test_move_and_wait_rewards(make_env):
     env = make_env([(1, 1)])
     _, rewards, *_ = env.step({0: RIGHT})
-    assert pos(env) == (2, 1) and status(env) == "moved" and rewards == {0: -1.0}
+    assert pos(env) == (2, 1) and status(env) == "moved" and rewards == {0: 0.0}
     _, rewards, *_ = env.step({0: WAIT})
     assert pos(env) == (2, 1) and status(env) == "waited" and rewards == {0: 0.0}
 
@@ -152,15 +152,15 @@ def test_action_mask_matches_traffic_rules():
 
 
 # ------------------------------------------------------------------------- snow
-def test_plow_cleans_a_level_2_cell_in_4_steps_and_is_rewarded(make_env):
+def test_plow_cleans_a_level_2_cell_in_5_steps_and_is_rewarded(make_env):
     env = make_env([(1, 1)])
     set_snow(env, {(2, 1): 2, (5, 5): 1})  # a second snowy cell keeps the episode running
     _, rewards, *_ = env.step({0: RIGHT})  # arrival = first working step
-    assert env.snow_field.snow[1, 2] == 2 and rewards[0] == -1  # not done yet, only the move cost
-    for _ in range(2):
+    assert env.snow_field.snow[1, 2] == 2 and rewards[0] == 0  # no reward until cleaning completes
+    for _ in range(3):
         env.step({0: WAIT})
     assert env.snow_field.snow[1, 2] == 2
-    _, rewards, *_ = env.step({0: WAIT})  # 4th step: done, all snow removed at once
+    _, rewards, *_ = env.step({0: WAIT})  # 5th step: done, all snow removed at once
     assert env.snow_field.snow[1, 2] == 0
     assert rewards[0] == 2  # one reward point per snow layer
 
@@ -186,17 +186,17 @@ def test_secondary_street_event_without_reward():
     place(env, [(0, 0)])
     set_snow(env, {(1, 0): 1, (1, 2): 3})  # the only snow of street A is on (1, 0)
     _, rewards, *_ = env.step({0: RIGHT})  # finishes street A only
-    assert rewards[0] == -1 + 1  # move cost + level-1 cell, no street bonus
+    assert rewards[0] == 1  # level-1 cell, no street bonus
     assert SnowplowEvent.SECONDARY_STREET_CLEARED in [e.type for e in env.event_log.events()]
 
 
 def test_main_street_reward():
-    env = SnowPlowEnv(road_network_small, SnowplowConfig(snow=SnowConfig(initial_clouds=0, cloud_spawn_prob=0)))
+    env = SnowPlowEnv(road_network_1, SnowplowConfig(snow=SnowConfig(initial_clouds=0, cloud_spawn_prob=0)))
     env.reset(seed=0)
-    place(env, [(3, 2)])  # northern highway lane, flows west
-    set_snow(env, {(2, 2): 1, (0, 6): 3})
+    place(env, [(3, 4)])  # northern highway lane, flows west
+    set_snow(env, {(2, 4): 1, (0, 6): 3})
     _, rewards, *_ = env.step({0: LEFT})
-    assert rewards[0] == -1 + 1  # move cost + level-1 cell, no street bonus
+    assert rewards[0] == 1  # level-1 cell, no street bonus
     assert SnowplowEvent.MAIN_STREET_CLEARED in [e.type for e in env.event_log.events()]
 
 
@@ -217,7 +217,7 @@ def test_cleaning_everything_does_not_terminate_before_max_steps(make_env):
     set_snow(env, {(2, 1): 1})
     obs, rewards, terminated, truncated, info = env.step({0: RIGHT})
     assert terminated == {0: False} and truncated == {0: False}
-    assert rewards[0] == -1 + 1  # move + level-1 cell (street completion is no longer rewarded)
+    assert rewards[0] == 1  # level-1 cell (street completion is no longer rewarded)
     env.step({0: WAIT})  # episodes terminate only at max_steps
 
 
@@ -248,20 +248,20 @@ def test_reset_starts_a_fresh_episode(make_env):
 def test_metrics_are_reported(make_env):
     env = make_env([(1, 1)])
     set_snow(env, {(2, 1): 3, (3, 1): 0, (6, 6): 3})
-    env.step({0: RIGHT})  # onto the level-3 cell: busy for 8 steps
-    for _ in range(7):
+    env.step({0: RIGHT})  # onto the level-3 cell: busy for 10 steps
+    for _ in range(9):
         env.step({0: RIGHT})  # ignored while busy
     env.step({0: RIGHT})  # free again: goes onto a clean cell
     m = env.episode_metrics()
-    assert m["steps"] == 9 and m["snow_cleared"] == 3 and m["repeated_work"] == 1
-    assert m["events/moved"] == 2 and m["events/plowing"] == 7 and m["plowing_steps"] == 8
+    assert m["steps"] == 11 and m["snow_cleared"] == 3 and m["repeated_work"] == 1
+    assert m["events/moved"] == 2 and m["events/plowing"] == 9 and m["plowing_steps"] == 10
     assert m["cells_cleared"] == 1 and m["cooperation_rate"] == 0.0 and 0 < m["fraction_clean"] < 1
 
 
 # ------------------------------------------------------------------ robustness
-@pytest.mark.parametrize("map_name,n_plows", [("small", 1), ("small", 3), ("network_1", 2)])
+@pytest.mark.parametrize("map_name,n_plows", [("network_1", 1), ("network_2", 3), ("network_1", 2)])
 def test_many_random_episodes_do_not_crash(map_name, n_plows):
-    env = SnowPlowEnv(MAPS[map_name], SnowplowConfig(n_plows=n_plows, max_steps=60))
+    env = SnowPlowEnv(MAPS[map_name], SnowplowConfig(n_plows=n_plows, max_steps=60, allow_shared_cells=False))
     rng = np.random.default_rng(0)
     for episode in range(8):
         env.reset(seed=episode)

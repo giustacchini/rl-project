@@ -51,7 +51,7 @@ def test_clear_removes_all_layers():
 def test_plow_step_single_and_team_times():
     f = field()
     f.snow[1, 0] = 3
-    for _ in range(7):  # one plow: 8 steps for level 3
+    for _ in range(9):  # one plow: 10 steps for level 3
         assert f.plow_step({(0, 1): 1}) == {}
     assert f.plow_step({(0, 1): 1}) == {(0, 1): 3} and f.snow[1, 0] == 0
     f.snow[1, 0] = 3

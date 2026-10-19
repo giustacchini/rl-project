@@ -100,10 +100,10 @@ class SnowPlowEnv(MultiGridEnv):
         render_fps: int = 20,
         **kwargs,
     ):
-        self.metadata["render_fps"] = render_fps
+        self.metadata = {**self.metadata, "render_fps": render_fps}
         self.config = config or SnowplowConfig()
         self.road_map = RoadMap.from_config(road_network or road_network_1)
-        self.snow_field = SnowField(self.road_map, self.config.snow)
+        self.snow_field = SnowField(self.road_map, self.config.snow, n_plows=self.config.n_plows)
         self.event_log = EventLog()
         self.metrics = EpisodeMetrics()
         self.reward_calculator = make_snowplow_reward_calculator()
@@ -286,14 +286,8 @@ class SnowPlowEnv(MultiGridEnv):
         self.snow_field.age_clouds()
         self.snow_field.snowfall_step(self.np_random, self.step_count)
 
-        # 10a. success: the roads are clean (and some snow fell at some point, so it is not trivial)
-        # success = self.snow_field.is_clean and self.snow_field.total_fallen > 0
-        # if success:
-        #     self.event_log.emit(SnowplowEvent.ALL_CLEAN, step=self.step_count)
-
-        ####We dont want episode termination by success only by maximun steps per episode
+        # Episodes have a fixed horizon; a temporarily clean map does not end snowfall.
         success = False
-        #########################
 
         # 9. rewards from this step's events (shared rewards are split equally between plows)
         events = self.event_log.events()
@@ -383,9 +377,9 @@ class SnowPlowEnv(MultiGridEnv):
 
         1. Count how many plows stand on every cell after the movement stage (cells can be shared).
         2. Every snowy cell with plows on it gets one step of work: 1 / plow_time(level, n_plows)
-           (see SnowField.plow_step). Two plows on a level-3 cell finish in 3 steps instead of 8.
+           (see SnowField.plow_step). Two plows on a level-3 cell finish in 3 steps instead of 10.
         3. Remember how much of the work each plow did on each cell (self._work_share).
-        4. When a cell becomes clean, every plow that worked on it gets a PARTIALLY_CLEARED event
+        4. When a cell becomes clean, every plow that worked on it gets a CELL_CLEARED event
            whose reward_scale is (layers removed) x (its share of the work). The shares add up to 1,
            so the team reward of a cell is the same whoever cleaned it.
         5. Only after all cells are processed, check which streets became completely snow-free,
@@ -451,7 +445,7 @@ class SnowPlowEnv(MultiGridEnv):
 
     # --------------------------------------------------------------- metrics
     def episode_metrics(self) -> dict:
-        """Metrics of the episode so far (steps, reward, snow cleared, % clean, success, ...)."""
+        """Metrics of the fixed-horizon episode (reward, snow, cleaning, and cooperation)."""
         summary = self.metrics.summary()
         for key in (
             "snow_cleared",
@@ -471,7 +465,6 @@ class SnowPlowEnv(MultiGridEnv):
         summary["snow_fallen"] = self.snow_field.total_fallen
         summary["snow_remaining"] = int(self.snow_field.snow.sum())
         summary["fraction_clean"] = self.snow_field.fraction_clean
-        # summary["success"] = bool(self.snow_field.is_clean and self.snow_field.total_fallen > 0)
         return summary
 
     # ------------------------------------------------------------- rendering

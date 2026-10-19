@@ -431,21 +431,29 @@ class _PPOBase:
         takes the argmax action, which can look much worse: a greedy policy with no
         randomness can get stuck oscillating between two cells in a gridworld.
         """
+        if n_episodes < 1:
+            raise ValueError("n_episodes must be >= 1")
         env = ParallelEnvAdapter(self.env_fn(), **self.adapter_kwargs)
         rng = np.random.default_rng(seed)
-        act = self.make_policy(deterministic)
         returns, lengths = [], []
-        for _ in range(n_episodes):
-            obs, state, _ = env.reset(seed=int(rng.integers(0, 2**31 - 1)))
-            new_episode, total, steps, done = True, 0.0, 0, False
-            while not done:
-                res = env.step(act(obs, env.mask, new_episode))
-                obs, new_episode = res.obs, False
-                total += float(res.reward.sum())
-                steps += 1
-                done = res.done
-            returns.append(total)
-            lengths.append(steps)
+        devices = [self.dev.index or 0] if self.dev.type == "cuda" else []
+        try:
+            with torch.random.fork_rng(devices=devices):
+                torch.manual_seed(seed)
+                act = self.make_policy(deterministic)
+                for _ in range(n_episodes):
+                    obs, _, _ = env.reset(seed=int(rng.integers(0, 2**31 - 1)))
+                    new_episode, total, steps, done = True, 0.0, 0, False
+                    while not done:
+                        res = env.step(act(obs, env.mask, new_episode))
+                        obs, new_episode = res.obs, False
+                        total += float(res.reward.sum())
+                        steps += 1
+                        done = res.done
+                    returns.append(total)
+                    lengths.append(steps)
+        finally:
+            env.env.close()
         return {"mean_return": float(np.mean(returns)), "std_return": float(np.std(returns)), "mean_length": float(np.mean(lengths))}
 
     def save(self, path: str) -> None:

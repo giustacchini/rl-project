@@ -42,7 +42,7 @@ def test_random_policy_only_picks_legal_actions():
 
 
 def test_greedy_uses_legal_actions_on_a_simple_map():
-    env = SnowPlowEnv(MAPS["small"], SnowplowConfig(max_steps=200))
+    env = SnowPlowEnv(MAPS["network_1"], SnowplowConfig(max_steps=200))
     summary = summarize(run_policy(env, GreedyPolicy(), episodes=10, seed=0))
     assert summary["events/invalid_move"] == 0  # it only uses legal moves
     assert summary["steps"] == 200
@@ -50,6 +50,6 @@ def test_greedy_uses_legal_actions_on_a_simple_map():
 
 def test_greedy_beats_random():
     config = SnowplowConfig(max_steps=150)
-    greedy = summarize(run_policy(SnowPlowEnv(MAPS["small"], config), GreedyPolicy(), 10, seed=5))
-    random = summarize(run_policy(SnowPlowEnv(MAPS["small"], config), RandomPolicy(0), 10, seed=5))
+    greedy = summarize(run_policy(SnowPlowEnv(MAPS["network_1"], config), GreedyPolicy(), 10, seed=5))
+    random = summarize(run_policy(SnowPlowEnv(MAPS["network_1"], config), RandomPolicy(0), 10, seed=5))
     assert greedy["total_reward"] > random["total_reward"]

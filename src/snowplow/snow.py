@@ -75,7 +75,7 @@ class SnowField:
 
         `workers` maps a cell (x, y) to the number of plows standing on it this step.
         Every snowy cell with at least one plow gets `1 / plow_time(level, n_plows)` of work:
-        one plow on a level-3 cell needs 8 steps (1/8 per step), two plows need 3 steps
+        one plow on a level-3 cell needs 10 steps (1/10 per step), two plows need 3 steps
         (1/3 per step). Because the work is stored as a fraction, mixed situations also work:
         if a second plow joins half-way, the rest of the work simply goes faster. If snow falls
         on a cell while it is being plowed, the remaining work is done at the new level's speed.

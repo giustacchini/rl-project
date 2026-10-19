@@ -94,6 +94,16 @@ def test_environment_overrides_preserve_zero_and_false_values():
     assert config.snow.plow_time_single == (0, 1, 2, 3)
 
 
+def test_snow_preset_and_new_probability_spelling_are_honored():
+    _, config = resolve_environment(make_args(experiment="exp3"))
+    assert config.snow.scale_spawn_with_plows is False
+    _, config = resolve_environment(make_args(
+        experiment="exp3", cloud_spawn_prob=0.1, fixed_spawn_prob=False,
+    ))
+    assert config.snow.cloud_spawn_prob == 0.1
+    assert config.snow.scale_spawn_with_plows is True
+
+
 def test_training_presets_and_explicit_checkpoint_disable():
     from main import resolve_training
 

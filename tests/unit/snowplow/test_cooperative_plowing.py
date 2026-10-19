@@ -1,7 +1,7 @@
 """Cooperative plowing: shared cells, time-based plowing per snow level, busy plows, fair rewards.
 
 Default plow times (SnowConfig):
-    one plow       level 1 / 2 / 3 -> 1 / 4 / 8 steps
+    one plow       level 1 / 2 / 3 -> 1 / 5 / 10 steps
     two+ plows     level 1 / 2 / 3 -> 1 / 2 / 3 steps
 The step on which a plow arrives on a cell already counts as a working step.
 """
@@ -52,7 +52,7 @@ def steps_until_clean(env, cell, actions, limit=20):
 # ------------------------------------------------------------------ config
 def test_plow_time_lookup():
     cfg = SnowConfig()
-    assert [cfg.plow_time(level, 1) for level in (1, 2, 3)] == [1, 4, 8]
+    assert [cfg.plow_time(level, 1) for level in (1, 2, 3)] == [1, 5, 10]
     assert [cfg.plow_time(level, 2) for level in (1, 2, 3)] == [1, 2, 3]
     assert cfg.plow_time(3, 5) == 3  # more than two plows use the team times
     assert cfg.plow_time(0, 1) == 0 and cfg.plow_time(2, 0) == 0
@@ -89,7 +89,7 @@ def test_a_plow_can_join_a_waiting_plow_and_plows_can_pass_each_other(make_env):
 
 
 # ------------------------------------------------------------------ plowing time
-@pytest.mark.parametrize("level,expected", [(1, 1), (2, 4), (3, 8)])
+@pytest.mark.parametrize("level,expected", [(1, 1), (2, 5), (3, 10)])
 def test_single_plow_time_per_level(make_env, level, expected):
     env = make_env([(1, 1)])
     set_snow(env, {(2, 1): level, **KEEP_RUNNING})
@@ -110,21 +110,21 @@ def test_two_plows_together_are_faster(make_env, level, expected):
 def test_a_late_helper_speeds_up_the_rest_of_the_work(make_env):
     env = make_env([(1, 1), (4, 1)])
     set_snow(env, {(2, 1): 3, **KEEP_RUNNING})
-    env.step({0: RIGHT, 1: LEFT})  # plow 0 starts alone (1/8), plow 1 is on its way
-    env.step({0: WAIT, 1: LEFT})  # plow 0: 2/8 done; plow 1 now at (2, 1) too -> team speed 1/3
+    env.step({0: RIGHT, 1: LEFT})  # plow 0 starts alone (1/10), plow 1 is on its way
+    env.step({0: WAIT, 1: LEFT})  # plow 0: 1/10 done before this step; plow 1 now at (2, 1) too -> team speed 1/3
     assert pos(env, 1) == (2, 1) and env.snow_field.snow[1, 2] == 3
-    # Work so far: 1/8 (alone) + 1/3 (together) = 0.458; the remaining 0.542 needs 2 more team steps.
+    # Work so far: 1/10 (alone) + 1/3 (together) = 0.433; the remaining 0.567 needs 2 more team steps.
     took = steps_until_clean(env, (2, 1), {0: WAIT, 1: WAIT})
-    assert took == 2  # 5 steps in total instead of 8 alone
+    assert took == 2  # 4 steps in total instead of 10 alone
 
 
 def test_snow_falling_during_plowing_slows_the_rest_down(make_env):
     env = make_env([(1, 1)])
     set_snow(env, {(1, 1): 2, **KEEP_RUNNING})
     env.step({0: WAIT})
-    env.step({0: WAIT})  # half of the level-2 work (2/4) is done
-    env.snow_field.snow[1, 1] = 3  # more snow falls: the remaining half needs level-3 speed (1/8)
-    assert steps_until_clean(env, (1, 1), {0: WAIT}) == 4
+    env.step({0: WAIT})  # 40% of the level-2 work (2/5) is done
+    env.snow_field.snow[1, 1] = 3  # more snow falls: the remaining 60% needs level-3 speed (1/10)
+    assert steps_until_clean(env, (1, 1), {0: WAIT}) == 6
 
 
 # ------------------------------------------------------------------ busy plows
@@ -137,8 +137,9 @@ def test_a_busy_plow_can_only_wait_and_ignores_moves(make_env):
     obs, *_ = env.step({0: RIGHT})  # ignored: the plow keeps plowing
     assert pos(env) == (2, 1) and status(env) == "plowing"
     assert SnowplowEvent.PLOWING in [e.type for e in env.event_log.events()]
-    assert obs[0]["grid"][GRID_CHANNELS.index("plow_progress"), 1, 2] == pytest.approx(0.5)
-    env.step({0: WAIT}), env.step({0: WAIT})  # done after 4 steps in total
+    assert obs[0]["grid"][GRID_CHANNELS.index("plow_progress"), 1, 2] == pytest.approx(0.4)
+    for _ in range(3):
+        env.step({0: WAIT})  # done after 5 steps in total
     assert env.get_action_mask(0)[ACTIONS.index(RIGHT)]  # free again
     env.step({0: RIGHT})
     assert pos(env) == (3, 1)
@@ -153,7 +154,7 @@ def test_team_reward_is_split_by_the_work_done(make_env):
         _, rewards, *_ = env.step(actions)
         total += [rewards[0], rewards[1]]
     assert env.snow_field.snow[1, 2] == 0
-    assert total.tolist() == [-1 + 1.5, -1 + 1.5]  # move cost + half of the 3 layers each
+    assert total.tolist() == [1.5, 1.5]  # half of the 3 layers each; movement has no reward
     m = env.episode_metrics()
     assert m["cells_cleared_together"] == 1 and m["cooperation_rate"] == 1.0
 
@@ -163,7 +164,7 @@ def test_the_team_earns_the_same_per_cell_alone_or_together(make_env):
         env = make_env([(2, 1)] * n_plows)
         set_snow(env, {(2, 1): 3, **KEEP_RUNNING})
         events = []
-        for _ in range(8):
+        for _ in range(10):
             env.step({i: WAIT for i in range(n_plows)})
             events += [e for e in env.event_log.events() if e.type == SnowplowEvent.CELL_CLEARED]
         return sum(e.data["reward_scale"] for e in events)

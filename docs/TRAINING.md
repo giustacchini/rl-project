@@ -17,10 +17,14 @@ Zero-valued snowfall options and `--checkpoint-every 0` are actual overrides.
 Boolean settings can be reversed with `--no-recurrent` or `--no-exclusive-cells`.
 Without a preset, the default map is `network_3`, with one plow and PPO.
 
+The presets use fixed cloud-spawn probability by default. `--no-fixed-spawn-prob`
+enables scaling; `--fixed-spawn-prob` disables it. `--cloud-spawn-prob` and its
+legacy alias `--spawn-prob` set the probability.
+
 The presets retain one-plow `network_1` runs for exp1/exp2 and five-plow
 `network_3` runs for exp3/exp4. Exp2/exp4 are recurrent with local observations.
-Their default training target is 10 million environment steps and checkpoint
-interval is 1 million steps. Override these for quick checks:
+Their default training target is 500,000 environment steps and checkpoint
+interval is 100,000 steps. Override these for quick checks:
 
 ```bash
 python src/main.py train --experiment exp1 --steps 4096 --max-steps 16 --n-envs 2 --rollout-len 16 --hidden 32 --checkpoint-every 1024 --eval-episodes 2 --out runs/training_check

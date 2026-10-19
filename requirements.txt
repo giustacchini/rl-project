@@ -1,8 +1,8 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
-numpy
-torch
-mosaic-multigrid
-pillow
-matplotlib
-pytest
-pytest-cov
+numpy==2.5.3
+torch==2.14.1+cpu
+mosaic-multigrid==7.0.0
+pillow==12.3.0
+matplotlib==3.11.2
+pytest==9.1.1
+pytest-cov==7.1.0

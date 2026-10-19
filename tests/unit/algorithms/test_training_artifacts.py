@@ -132,3 +132,45 @@ def test_history_survives_interruption_after_an_update(tmp_path, monkeypatch):
         ])
     assert len(json.loads((tmp_path / "history.json").read_text())) == 1
     load_trainer(tmp_path, "model_step_4.pt")
+
+
+def test_evaluation_seeds_policy_and_preserves_training_random_state():
+    from snowplow.evaluation import run_trainer
+
+    agent = trainer()
+    before = torch.get_rng_state().clone()
+    first = run_trainer(agent, episodes=2, seed=31)
+    assert torch.equal(before, torch.get_rng_state())
+    assert first == run_trainer(agent, episodes=2, seed=31)
+    assert agent.evaluate(2, seed=31) == agent.evaluate(2, seed=31)
+
+
+def test_training_repeats_with_the_same_configuration_and_seed():
+    first = trainer()
+    first_history = first.learn(8, log_every=0)
+    second = trainer()
+    assert second.learn(8, log_every=0) == first_history
+    for parameter, other in zip(first.model.parameters(), second.model.parameters()):
+        assert torch.equal(parameter, other)
+
+
+@pytest.mark.parametrize("name,observation,recurrent", [
+    ("exp1", "full", False), ("exp2", "local", True),
+])
+def test_bundled_models_load_and_produce_legal_actions(name, observation, recurrent):
+    from pathlib import Path
+    import numpy as np
+    from algorithms.adapter import ParallelEnvAdapter
+
+    root = Path(__file__).resolve().parents[3]
+    agent, map_name, config = load_trainer(root / "models" / name)
+    assert map_name == "network_1" and config.observation == observation
+    assert agent.cfg.recurrent is recurrent
+    adapter = ParallelEnvAdapter(agent.env_fn(), **agent.adapter_kwargs)
+    try:
+        obs, _, _ = adapter.reset(seed=31)
+        actions = agent.make_policy(deterministic=True)(obs, adapter.mask, True)
+        assert adapter.mask[np.arange(config.n_plows), actions].all()
+        adapter.step(actions)
+    finally:
+        adapter.env.close()

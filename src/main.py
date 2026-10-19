@@ -47,13 +47,13 @@ def add_env_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--view", type=int, choices=[3, 5], help="window size for --obs local")
     p.add_argument("--max-steps", type=int, help="episode length limit")
     p.add_argument(
-        "--cloud-spawn-prob",
+        "--cloud-spawn-prob", "--spawn-prob", dest="cloud_spawn_prob",
         type=float,
         default=None,
         help="chance per step of a new cloud PER PLOW: the real chance is this x number of plows (default 0.02)",
     )
-    p.add_argument("--fixed-spawn-prob", action="store_true", help="do not scale the cloud spawn chance with the number of plows")
-    p.add_argument("--initial-clouds", type=int, default=None, help="clouds that already snowed at the start (default 2)")
+    p.add_argument("--fixed-spawn-prob", action=argparse.BooleanOptionalAction, default=None, help="keep cloud probability fixed; --no-fixed-spawn-prob scales it with plow count")
+    p.add_argument("--initial-clouds", type=int, default=None, help="clouds that already snowed at the start (default 10)")
     # Cooperative plowing (see SnowConfig.plow_time_single / plow_time_team).
     p.add_argument(
         "--plow-time-single",
@@ -61,7 +61,7 @@ def add_env_args(p: argparse.ArgumentParser) -> None:
         nargs="+",
         default=None,
         metavar="T",
-        help="steps ONE plow needs per snow level 1..max_snow (default: 1 4 8)",
+        help="steps ONE plow needs per snow level 1..max_snow (default: 1 5 10)",
     )
     p.add_argument(
         "--plow-time-team",
@@ -82,34 +82,35 @@ def add_env_args(p: argparse.ArgumentParser) -> None:
 def resolve_environment(args: argparse.Namespace) -> tuple[str, SnowplowConfig]:
     """Resolve the map and environment config used by a command."""
     experiment = get_experiment(args.experiment)
-    env_grid_args: dict = experiment["env_args"]
-    snow_config_args: dict = experiment["snow_args"]
-    snow = {}
-    if args.cloud_spawn_prob is not None:
-        snow["cloud_spawn_prob"] = args.cloud_spawn_prob
+    env_values = experiment["env_args"].copy()
+    map_name = args.map or env_values.pop("map", "network_3")
+    env_values.pop("map", None)
+    for cli_name, field in (
+        ("plows", "n_plows"), ("max_steps", "max_steps"),
+        ("obs", "observation"), ("view", "view_size"),
+    ):
+        value = getattr(args, cli_name, None)
+        if value is not None:
+            env_values[field] = value
+    if getattr(args, "exclusive_cells", None) is not None:
+        env_values["allow_shared_cells"] = not args.exclusive_cells
+
+    snow = experiment["snow_args"].copy()
+    # The old spelling is accepted for callers that construct a Namespace directly.
+    probability = getattr(args, "cloud_spawn_prob", None)
+    if probability is None:
+        probability = getattr(args, "spawn_prob", None)
+    if probability is not None:
+        snow["cloud_spawn_prob"] = probability
     if args.initial_clouds is not None:
         snow["initial_clouds"] = args.initial_clouds
-    if getattr(args, "fixed_spawn_prob", False):
-        snow["scale_spawn_with_plows"] = False
-
-    snow["clear_per_pass"] = snow_config_args.get("clear_per_pass", 2)
-    # Plow times are given for levels 1..max_snow on the command line; level 0 needs no work.
-    if getattr(args, "plow_time_single", None):
-        snow["plow_time_single"] = (0, *args.plow_time_single)
-    if getattr(args, "plow_time_team", None):
-        snow["plow_time_team"] = (0, *args.plow_time_team)
-
-    config_defaults = SnowplowConfig()
-    config = SnowplowConfig(
-        n_plows=args.plows if args.plows is not None else env_grid_args.get("n_plows", config_defaults.n_plows),
-        max_steps=args.max_steps if args.max_steps is not None else env_grid_args.get("max_steps", config_defaults.max_steps),
-        observation=args.obs if args.obs is not None else env_grid_args.get("observation", config_defaults.observation),
-        view_size=args.view if args.view is not None else env_grid_args.get("view_size", config_defaults.view_size),
-        allow_shared_cells=not getattr(args, "exclusive_cells", False),
-        snow=SnowConfig(**snow),
-    )
-    map_name = args.map if args.map is not None else env_grid_args.get("map", "network_3")
-    return map_name, config
+    if getattr(args, "fixed_spawn_prob", None) is not None:
+        snow["scale_spawn_with_plows"] = not args.fixed_spawn_prob
+    for field in ("plow_time_single", "plow_time_team"):
+        value = getattr(args, field, None)
+        if value is not None:
+            snow[field] = (0, *value)
+    return map_name, SnowplowConfig(**env_values, snow=SnowConfig(**snow))
 
 
 def build_config(args: argparse.Namespace) -> SnowplowConfig:
@@ -202,7 +203,7 @@ def cmd_train(args) -> None:
             "obs",
             "view",
             "max_steps",
-            "spawn_prob",
+            "cloud_spawn_prob",
             "initial_clouds",
             "plow_time_single",
             "plow_time_team",
@@ -217,7 +218,7 @@ def cmd_train(args) -> None:
             "reward_scale",
             "seed",
         )
-        if any(getattr(args, name, None) is not None for name in override_names) or args.fixed_spawn_prob or args.lcr_zeta:
+        if any(getattr(args, name, None) is not None for name in override_names) or args.fixed_spawn_prob is not None or args.lcr_zeta:
             raise ValueError("--resume restores saved settings; only --steps, --checkpoint-every, logging/evaluation and --out may change")
         trainer, map_name, config = load_trainer(Path(args.resume), resume=True)
         metadata = dict(trainer.run_config)
@@ -363,7 +364,8 @@ def cmd_evaluate(args) -> None:
     trainer, _, _ = load_trainer(Path(args.run), args.checkpoint)
     results = summarize(run_trainer(trainer, args.episodes, seed=args.seed, deterministic=args.deterministic))
     print_table({"trained": results})
-    write_results(Path(args.run), {"trained": results}, {"episodes": args.episodes}, name="evaluation")
+    write_results(Path(args.out) if args.out else (Path(args.run) if Path(args.run).is_dir() else Path(args.run).parent),
+                  {"trained": results}, {"episodes": args.episodes, "seed": args.seed, "deterministic": args.deterministic}, name="evaluation")
 
 
 def cmd_play(args) -> None:
@@ -375,6 +377,9 @@ def cmd_play(args) -> None:
         from algorithms.adapter import ParallelEnvAdapter
 
         trainer, map_name, config = load_trainer(Path(args.run), args.checkpoint)
+        import torch
+
+        torch.manual_seed(args.seed)  # Seed policy sampling as well as environment dynamics.
         env = make_env(map_name, config, render_mode, render_fps=args.render_fps)
         adapter = ParallelEnvAdapter(env, **adapter_kwargs(config))
         act = trainer.make_policy(deterministic=args.deterministic)
@@ -384,8 +389,6 @@ def cmd_play(args) -> None:
             if args.gif:
                 frames.append(env.get_frame(False, 24))
             res = adapter.step(act(obs, adapter.mask, new_episode))
-            # check when snow clouds appear in a certain area of the grid (for debugging)
-            # print(env.step_count, [(r, c, int(env.snow_field.snow[r, c]), bool(env.snow_field.cloud_mask()[r, c])) for r, c in [(2, 0), (3, 0), (4, 0), (4, 1)]])
             obs, new_episode, done = res.obs, False, res.done
         info = res.info.get("episode", {})
     else:
@@ -414,6 +417,7 @@ def cmd_play(args) -> None:
 
         frames.append(env.get_frame(False, 24))
         images = [Image.fromarray(f) for f in frames]
+        Path(args.gif).parent.mkdir(parents=True, exist_ok=True)
         images[0].save(args.gif, save_all=True, append_images=images[1:], duration=120, loop=0)
         print(f"saved {len(images)} frames to {args.gif}")
     env.close()
@@ -472,7 +476,6 @@ def main(argv=None) -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--deterministic", action="store_true", help="model: take the most likely action")
     p.add_argument("--render-fps", type=int, default=20, dest="render_fps")
-    p.add_argument("--martin-likes-snow", action="store_true", help="Martin likes snow")
     p.set_defaults(func=cmd_play)
 
     p = sub.add_parser("train", help="train PPO (1 plow) or MAPPO (several plows)")
@@ -507,6 +510,7 @@ def main(argv=None) -> None:
     p.add_argument("--episodes", type=int, default=100)
     p.add_argument("--seed", type=int, default=1000)
     p.add_argument("--deterministic", action="store_true")
+    p.add_argument("--out", help="evaluation output directory (default: the model run directory)")
     p.set_defaults(func=cmd_evaluate)
 
     args = parser.parse_args(argv)
