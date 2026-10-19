@@ -79,7 +79,7 @@ def _preset(n_plows, observation, map_name, algo):
             "max_steps": 1_000,
             "allow_shared_cells": n_plows > 1,
         },
-        "snow_args": {},  # SnowConfig supplies the branch's current snow settings.
+        "snow_args": {"clear_per_pass": 1, "scale_spawn_with_plows": False},  # SnowConfig supplies the branch's current snow settings.
         "ppo_args": {
             "recurrent": observation == "local",
             "n_envs": 8,
@@ -90,8 +90,8 @@ def _preset(n_plows, observation, map_name, algo):
         },
         "training_args": {
             "algo": algo,
-            "steps": 10_000_000,
-            "checkpoint_every": 1_000_000,
+            "steps": 500_000,
+            "checkpoint_every": 100_000,
         },
     }
 

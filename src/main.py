@@ -82,8 +82,8 @@ def add_env_args(p: argparse.ArgumentParser) -> None:
 def resolve_environment(args: argparse.Namespace) -> tuple[str, SnowplowConfig]:
     """Resolve the map and environment config used by a command."""
     experiment = get_experiment(args.experiment)
-    env_grid_args: dict = experiment["env_grid_args"]
-    snow_config_args: dict = experiment["snow_config_args"]
+    env_grid_args: dict = experiment["env_args"]
+    snow_config_args: dict = experiment["snow_args"]
     snow = {}
     if args.cloud_spawn_prob is not None:
         snow["cloud_spawn_prob"] = args.cloud_spawn_prob
