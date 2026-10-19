@@ -22,6 +22,8 @@ Discrete actions only (the grid environments use 4-5 moves).
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import math
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -56,6 +58,15 @@ class PPOConfig:
     reward_scale: float = 1.0  # training rewards are multiplied by this (keeps value targets small when returns are in the 100s)
     seed: int = 0
     device: str = "cpu"
+
+    def __post_init__(self):
+        for name in ("n_envs", "rollout_len", "epochs", "n_minibatches", "hidden", "layers"):
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name} must be >= 1")
+        if self.lr <= 0 or self.reward_scale <= 0:
+            raise ValueError("lr and reward_scale must be positive")
+        if self.reward_mode not in ("individual", "team_sum", "team_mean"):
+            raise ValueError("unknown reward_mode")
 
     @classmethod
     def mappo_lcr_paper(cls, **overrides) -> "PPOConfig":
@@ -169,7 +180,11 @@ class _PPOBase:
         self.ep_len = np.zeros(self.E, dtype=int)
         self.finished_returns: list[float] = []
         self.finished_lengths: list[int] = []
+        self.finished_metrics: list[dict] = []
         self.env_steps = 0
+        self.updates = 0
+        self.history: list[dict] = []
+        self.run_config: dict = {}
 
     # ---------------------------------------------------------------- helpers
     def _reset_all(self, first: bool = False) -> None:
@@ -244,6 +259,8 @@ class _PPOBase:
                 self.ep_len[e] += 1
                 rew[e] = self._team_reward(r) * self.cfg.reward_scale  # evaluation/reporting always use the raw reward
                 done[e] = res.done
+                if res.done:
+                    self.finished_metrics.append(dict(res.info.get("episode", {})))
                 trunc_only[e] = res.truncated and not res.terminated
                 next_obs[e], next_state[e], next_alive[e], next_mask[e] = res.obs, res.state, res.alive, res.mask
             self.env_steps += self.E
@@ -337,34 +354,54 @@ class _PPOBase:
     # ------------------------------------------------------------ public API
     # =========== Train method ===========
     def learn(self, total_env_steps: int, log_every: int = 10, callback: Callable[[dict], None] | None = None) -> list[dict]:
-        """Train for roughly `total_env_steps` (summed over the parallel envs)."""
+        """Train to a total environment-step budget, rounded up to a complete rollout.
+
+        History contains rolling means over the last 20 completed training episodes.
+        Before an episode finishes, episode metrics are null rather than fabricated zeros.
+        """
+        if total_env_steps <= 0:
+            raise ValueError("total_env_steps must be positive")
         # Rollout length / number of environments
         per_update = self.cfg.rollout_len * self.E
-        n_updates = max(1, total_env_steps // per_update)
-        history = []
-        for u in range(n_updates):
+        n_updates = max(0, math.ceil((total_env_steps - self.env_steps) / per_update))
+        target_updates = self.updates + n_updates
+        for _ in range(n_updates):
             if self.cfg.anneal_lr:
                 for g in self.opt.param_groups:
-                    g["lr"] = self.cfg.lr * (1.0 - u / n_updates)
+                    g["lr"] = self.cfg.lr * (1.0 - self.updates / target_updates)
             data = self._collect()
             stats = self._update(data)
             recent = self.finished_returns[-20:]
+            self.updates += 1
+            metrics = self.finished_metrics[-20:]
+            keys = {key for episode in metrics for key in episode}
+            episode_metrics = {
+                key: float(np.mean([float(ep[key]) for ep in metrics if key in ep]))
+                for key in sorted(keys)
+                if all(isinstance(ep[key], (int, float, bool, np.number)) for ep in metrics if key in ep)
+            }
             stats.update(
-                update=u + 1,
+                update=self.updates,
                 env_steps=self.env_steps,
-                mean_return=float(np.mean(recent)) if recent else float("nan"),
-                mean_ep_len=float(np.mean(self.finished_lengths[-20:])) if recent else float("nan"),
+                mean_return=float(np.mean(recent)) if recent else None,
+                mean_ep_len=float(np.mean(self.finished_lengths[-20:])) if recent else None,
+                episodes_completed=len(self.finished_returns),
+                metrics_episodes=len(metrics),
+                episode_metrics=episode_metrics,
+                total_reward=episode_metrics.get("total_reward"),
             )
-            history.append(stats)
+            self.history.append(stats)
             if callback:
                 callback(stats)
-            if log_every and (u + 1) % log_every == 0:
+            if log_every and self.updates % log_every == 0:
+                mean_return = "n/a" if stats["mean_return"] is None else f"{stats['mean_return']:.2f}"
+                mean_length = "n/a" if stats["mean_ep_len"] is None else f"{stats['mean_ep_len']:.0f}"
                 print(
-                    f"[{type(self).__name__}] upd {u + 1}/{n_updates}  steps {self.env_steps}  "
-                    f"mean return {stats['mean_return']:.2f}  len {stats['mean_ep_len']:.0f}  "
+                    f"[{type(self).__name__}] upd {self.updates}/{target_updates}  steps {self.env_steps}  "
+                    f"mean return {mean_return}  len {mean_length}  "
                     f"ent {stats['entropy']:.2f}  kl {stats['approx_kl']:.4f}"
                 )
-        return history
+        return self.history
 
     def make_policy(self, deterministic: bool = False):
         """Return `act(obs[A,D], mask[A,n], new_episode=False) -> int array [A]` for running the trained policy.
@@ -412,11 +449,53 @@ class _PPOBase:
         return {"mean_return": float(np.mean(returns)), "std_return": float(np.std(returns)), "mean_length": float(np.mean(lengths))}
 
     def save(self, path: str) -> None:
-        torch.save({"model": self.model.state_dict(), "config": asdict(self.cfg)}, path)
+        """Atomically save weights, optimizer, progress, metrics and reconstruction config."""
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_suffix(target.suffix + ".tmp")
+        torch.save({
+            "format_version": 2,
+            "model": self.model.state_dict(), "config": asdict(self.cfg),
+            "optimizer": self.opt.state_dict(),
+            "env_steps": self.env_steps, "updates": self.updates,
+            "history": self.history,
+            "finished_returns": self.finished_returns,
+            "finished_lengths": self.finished_lengths,
+            "finished_metrics": self.finished_metrics,
+            "rng": self.rng.bit_generator.state,
+            "torch_rng": torch.get_rng_state(),
+            "cuda_rng": torch.cuda.get_rng_state_all() if self.dev.type == "cuda" else [],
+            "run_config": self.run_config,
+        }, temporary)
+        temporary.replace(target)
 
-    def load(self, path: str) -> None:
-        ckpt = torch.load(path, map_location=self.dev)
-        self.model.load_state_dict(ckpt["model"])
+    def load(self, path: str, resume: bool = False) -> None:
+        """Load weights, or continue optimization with fresh episodes when resume=True.
+
+        Environment snapshots and recurrent rollout states are not checkpointed.
+        Resuming restarts episodes; it is not a bit-for-bit continuation mid-episode.
+        """
+        ckpt = torch.load(path, map_location=self.dev, weights_only=True)
+        if resume and "optimizer" not in ckpt:
+            raise ValueError("This legacy checkpoint has weights only; it can be evaluated but not resumed.")
+        try:
+            self.model.load_state_dict(ckpt["model"])
+        except RuntimeError as exc:
+            raise ValueError("Checkpoint architecture does not match this environment/configuration.") from exc
+        self.run_config = ckpt.get("run_config", {})
+        if resume:
+            self.opt.load_state_dict(ckpt["optimizer"])
+            self.env_steps = ckpt["env_steps"]
+            self.updates = ckpt["updates"]
+            self.history = ckpt["history"]
+            self.finished_returns = ckpt["finished_returns"]
+            self.finished_lengths = ckpt["finished_lengths"]
+            self.finished_metrics = ckpt["finished_metrics"]
+            self.rng.bit_generator.state = ckpt["rng"]
+            torch.set_rng_state(ckpt["torch_rng"].cpu())
+            if self.dev.type == "cuda" and ckpt.get("cuda_rng"):
+                torch.cuda.set_rng_state_all([state.cpu() for state in ckpt["cuda_rng"]])
+            self._reset_all()
 
 
 class PPO(_PPOBase):

@@ -25,7 +25,7 @@ SNOWPLOW_REWARDS = {
     # The reward of a cleaned cell comes from SNOW_LEVEL_REWARDS (via the event's reward_scale),
     # so this base value stays 1.
     SnowplowEvent.CELL_CLEARED: 1,
-    # SnowplowEvent.PLOWING: 0,
+    # SnowplowEvent.PLOWING: 1,
     # Removed: the old per-cell and street-completion rewards.
     # SnowplowEvent.PARTIALLY_CLEARED: 1,
     # SnowplowEvent.SECONDARY_STREET_CLEARED: 2,

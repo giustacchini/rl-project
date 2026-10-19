@@ -1,8 +1,6 @@
-"""The four experiments of the project as presets.
+"""Experiment presets. CLI values override these, then dataclass defaults apply."""
 
-They differ only in the number of plows and in what a plow can see; the
-environment and the algorithms are the same code.
-"""
+from copy import deepcopy
 
 # Taken from the MultiGridEnv init constructor
 ENV_GRID_DEFAULT_ARGS = {
@@ -71,193 +69,45 @@ PPO_DEFAULT_ARGS = {
 }
 
 
-checkpoint_every = 1_000_000  # Save model every n steps
-max_episode_steps = 1_000  # Episode length limit.
-total_steps = 10_000_000  # Total environment steps.
+def _preset(n_plows, observation, map_name, algo):
+    return {
+        "env_args": {
+            "map": map_name,
+            "n_plows": n_plows,
+            "observation": observation,
+            "view_size": 5,
+            "max_steps": 1_000,
+            "allow_shared_cells": n_plows > 1,
+        },
+        "snow_args": {},  # SnowConfig supplies the branch's current snow settings.
+        "ppo_args": {
+            "recurrent": observation == "local",
+            "n_envs": 8,
+            "rollout_len": 64,
+            "lr": 3e-4,
+            "hidden": 128,
+            "seed": 0,
+        },
+        "training_args": {
+            "algo": algo,
+            "steps": 10_000_000,
+            "checkpoint_every": 1_000_000,
+        },
+    }
 
 
-# EXPERIMENTS = {
-#     # 1 plow, sees the whole map: the first thing that must work.
-#     "exp1": {
-#         # Strictly for mosaic env setup
-#         "env_args": {
-#             "map": "network_1",
-#             "n_plows": 1,  # number of snowplows (agents)
-#             "observation": "full",  # what a plow sees: the whole map or a window
-#             "view": 5,  # window size for --obs local
-#             "max_steps": max_episode_steps,  # episode length limit
-#             "exclusive_cells": True,  # forbid plows from sharing a cell (old blocking rules, no cooperative plowing)
-#         },
-#         # Algorithm settings
-#         # Read more in src/algorithms/ppo.py/PPOConfig
-#         "ppo_args": {
-#             "algo": "ppo",
-#             "recurrent": False,
-#             "n_envs": 8,
-#             "rollout-len": 64,
-#             "lr": 0.0003,
-#             "hidden": 128,
-#             "seed": 0,
-#             "steps": total_steps,
-#             # "max_steps": max_episode_steps,
-#             "checkpoint_every": checkpoint_every,
-#         },
-#     },
-#     # 1 plow, sees only a 5x5 window: needs memory -> recurrent (GRU) policy.
-#     "exp2": {
-#         "n_plows": 1,
-#         "observation": "local",
-#         "view": 5,
-#         "algo": "ppo",
-#         "recurrent": True,
-#         "map": "network_1",
-#         "n_envs": 8,
-#         "rollout-len": 64,
-#         "lr": 0.0003,
-#         "hidden": 128,
-#         "seed": 0,
-#         "steps": total_steps,
-#         "max_steps": max_episode_steps,
-#         "checkpoint_every": checkpoint_every,
-#     },
-#     # Multiple plows, everybody sees the whole map.
-#     "exp3": {
-#         "n_plows": 5,
-#         "observation": "full",
-#         "algo": "mappo",
-#         "recurrent": False,
-#         "map": "network_3",
-#         "n_envs": 8,
-#         "rollout-len": 64,
-#         "lr": 0.0003,
-#         "hidden": 128,
-#         "seed": 0,
-#         "steps": total_steps,
-#         "max_steps": max_episode_steps,
-#         "checkpoint_every": checkpoint_every,
-#     },
-#     # Multiple plows, local windows, recurrent.
-#     "exp4": {
-#         "n_plows": 5,
-#         "observation": "local",
-#         "view": 5,
-#         "algo": "mappo",
-#         "recurrent": True,
-#         "map": "network_3",
-#         "n_envs": 8,
-#         "rollout-len": 64,
-#         "lr": 0.0003,
-#         "hidden": 128,
-#         "seed": 0,
-#         "steps": total_steps,
-#         "max_steps": max_episode_steps,
-#         "checkpoint_every": checkpoint_every,
-#     },
-# }
+EXPERIMENTS = {
+    "exp1": _preset(1, "full", "network_1", "ppo"),
+    "exp2": _preset(1, "local", "network_1", "ppo"),
+    "exp3": _preset(5, "full", "network_3", "mappo"),
+    "exp4": _preset(5, "local", "network_3", "mappo"),
+}
 
 
-def get_experiment(exp):
-    # EXPERIMENTS.get(exp)
-    snow_config_args = SNOW_DEFAULT_ARGS
-    env_grid_args = ENV_GRID_DEFAULT_ARGS
-    ppo_args = PPO_DEFAULT_ARGS
-
-    if exp == "exp1":
-        # 1 plow, sees the whole map: the first thing that must work.
-        # ENV_GRID_ARGS
-        env_grid_args["map"] = "network_1"
-        env_grid_args["n_plows"] = 1
-        env_grid_args["observation"] = "full"
-        env_grid_args["view"] = 5
-        env_grid_args["max_episode_steps"] = max_episode_steps
-        env_grid_args["exclusive_cells"] = True
-
-        # SNOW_CONFIG_ARGS
-        snow_config_args["clear_per_pass"] = 1
-        snow_config_args["scale_spawn_with_plows"] = False
-
-        # PPO_ARGS / train args
-        ppo_args["algo"] = "ppo"
-        ppo_args["recurrent"] = False
-        ppo_args["rollout_len"] = 64
-        ppo_args["steps"] = total_steps
-        ppo_args["checkpoint_every"] = checkpoint_every
-
-        # ====== Other potential useful algo parameters ======
-        # ppo_args["gamma"]
-        # ppo_args["gae_lambda"]
-        # ppo_args["clip"]
-        # ppo_args["epochs"]
-        # ppo_args["n_minibatches"]
-        # ppo_args["anneal_lr"]
-        # ppo_args["ent_coef"]
-        # ppo_args["vf_coef"]
-        # ppo_args["max_grad_norm"]
-        # ppo_args["layers"]
-        # ppo_args["agent_id"]
-        # ppo_args["reward_mode"]
-        # ppo_args["activation"]
-        # ppo_args["reward_scale"]
-        # ppo_args["device"]
-
-    elif exp == "exp2":
-        # ENV_GRID_ARGS
-        env_grid_args["map"] = "network_1"
-        env_grid_args["n_plows"] = 1
-        env_grid_args["observation"] = "local"
-        env_grid_args["view"] = 5
-        env_grid_args["max_steps"] = max_episode_steps
-        env_grid_args["exclusive_cells"] = True
-
-        # SNOW_CONFIG_ARGS
-        snow_config_args["clear_per_pass"] = 1
-        snow_config_args["scale_spawn_with_plows"] = False
-
-        # PPO_ARGS / train args
-        ppo_args["algo"] = "ppo"
-        ppo_args["recurrent"] = True
-        ppo_args["rollout_len"] = 64
-        ppo_args["steps"] = total_steps
-        ppo_args["checkpoint_every"] = checkpoint_every
-
-    elif exp == "exp3":
-        # ENV_GRID_ARGS
-        env_grid_args["map"] = "network_3"
-        env_grid_args["n_plows"] = 1
-        env_grid_args["observation"] = "full"
-        env_grid_args["view"] = 5
-        env_grid_args["max_steps"] = max_episode_steps
-        env_grid_args["exclusive_cells"] = True
-
-        # SNOW_CONFIG_ARGS
-        snow_config_args["clear_per_pass"] = 1
-        snow_config_args["scale_spawn_with_plows"] = False
-
-        # PPO_ARGS / train args
-        ppo_args["algo"] = "mappo"
-        ppo_args["recurrent"] = False
-        ppo_args["rollout_len"] = 64
-        ppo_args["steps"] = total_steps
-        ppo_args["checkpoint_every"] = checkpoint_every
-
-    elif exp == "exp4":
-        # ENV_GRID_ARGS
-        env_grid_args["map"] = "network_3"
-        env_grid_args["n_plows"] = 1
-        env_grid_args["observation"] = "local"
-        env_grid_args["view"] = 5
-        env_grid_args["max_steps"] = max_episode_steps
-        env_grid_args["exclusive_cells"] = True
-
-        # SNOW_CONFIG_ARGS
-        snow_config_args["clear_per_pass"] = 1
-        snow_config_args["scale_spawn_with_plows"] = False
-
-        # PPO_ARGS / train args
-        ppo_args["algo"] = "mappo"
-        ppo_args["recurrent"] = True
-        ppo_args["rollout_len"] = 64
-        ppo_args["steps"] = total_steps
-        ppo_args["checkpoint_every"] = checkpoint_every
-
-    return {"snow_config_args": snow_config_args, "env_grid_args": env_grid_args, "ppo_args": ppo_args}
+def get_experiment(name):
+    """Return an independent preset; no experiment means ordinary defaults."""
+    if name is None:
+        return {key: {} for key in ("env_args", "snow_args", "ppo_args", "training_args")}
+    if name not in EXPERIMENTS:
+        raise ValueError(f"unknown experiment {name!r}")
+    return deepcopy(EXPERIMENTS[name])
