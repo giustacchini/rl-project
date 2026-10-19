@@ -69,7 +69,16 @@ from snowplow.snow import SnowField
 # "plow_progress" (last channel) is the fraction of plowing work already done on every cell, so a
 # plow can see whether a teammate is busy on a cell and how much work is left there.
 GRID_CHANNELS = (
-    "snow", "obstacle", "road", "highway", "intersection", "can_up", "can_down", "can_right", "can_left", "plow_progress",
+    "snow",
+    "obstacle",
+    "road",
+    "highway",
+    "intersection",
+    "can_up",
+    "can_down",
+    "can_right",
+    "can_left",
+    "plow_progress",
 )
 
 # mosaic's Direction numbering (used only so the drawn plow faces where it drove).
@@ -417,10 +426,10 @@ class SnowPlowEnv(MultiGridEnv):
             self.metrics.add("cells_cleared")
             if len(shares) > 1:
                 self.metrics.add("cells_cleared_together")  # the cooperation we want the plows to learn
-            
+
             for agent_id, share in shares.items():
                 self.event_log.emit(
-                    SnowplowEvent.PARTIALLY_CLEARED,
+                    SnowplowEvent.CELL_CLEARED,
                     agent_id=agent_id,
                     step=self.step_count,
                     position=(x, y),
@@ -445,8 +454,14 @@ class SnowPlowEnv(MultiGridEnv):
         """Metrics of the episode so far (steps, reward, snow cleared, % clean, success, ...)."""
         summary = self.metrics.summary()
         for key in (
-            "snow_cleared", "repeated_work", "main_streets_cleared", "secondary_streets_cleared",
-            "cells_cleared", "cells_cleared_together", "plowing_steps", "shared_cell_steps",
+            "snow_cleared",
+            "repeated_work",
+            "main_streets_cleared",
+            "secondary_streets_cleared",
+            "cells_cleared",
+            "cells_cleared_together",
+            "plowing_steps",
+            "shared_cell_steps",
         ):
             summary.setdefault(key, 0.0)
         for key in ("events/moved", "events/do_nothing", "events/invalid_move", "events/agent_collision", "events/plowing"):

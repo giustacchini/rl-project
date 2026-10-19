@@ -22,7 +22,7 @@ from pathlib import Path
 from snowplow.baselines import CooperativeGreedyPolicy, GreedyPolicy, RandomPolicy
 from snowplow.config import SnowConfig, SnowplowConfig
 from snowplow.evaluation import run_policy, run_trainer, summarize
-from snowplow.experiments import EXPERIMENTS
+from snowplow.experiments import get_experiment
 from snowplow.factory import (
     adapter_kwargs,
     config_from_dict,
@@ -40,14 +40,14 @@ def add_env_args(p: argparse.ArgumentParser) -> None:
     Explicit command-line values override an experiment preset. Values omitted
     on the command line come from the preset, then SnowplowConfig defaults.
     """
-    p.add_argument("--experiment", choices=sorted(EXPERIMENTS), help="preset: plows / observation / algorithm")
+    p.add_argument("--experiment", help="preset: plows / observation / algorithm")
     p.add_argument("--map", choices=sorted(MAPS), help="road network (small = quick debugging)")
     p.add_argument("--plows", type=int, help="number of snowplows (agents)")
     p.add_argument("--obs", choices=["full", "local"], help="what a plow sees: the whole map or a window")
     p.add_argument("--view", type=int, choices=[3, 5], help="window size for --obs local")
     p.add_argument("--max-steps", type=int, help="episode length limit")
     p.add_argument(
-        "--spawn-prob",
+        "--cloud-spawn-prob",
         type=float,
         default=None,
         help="chance per step of a new cloud PER PLOW: the real chance is this x number of plows (default 0.02)",
@@ -78,17 +78,18 @@ def add_env_args(p: argparse.ArgumentParser) -> None:
 
 def resolve_environment(args: argparse.Namespace) -> tuple[str, SnowplowConfig]:
     """Resolve the map and environment config used by a command."""
-    experiment = EXPERIMENTS.get(args.experiment, {})
-    env_args = experiment["env_args"]
-    algo_args = experiment["algo_args"]
-    snow_args = experiment["snow_args"]
+    experiment = get_experiment(args.experiment)
+    env_grid_args: dict = experiment["env_grid_args"]
+    snow_config_args: dict = experiment["snow_config_args"]
     snow = {}
-    if args.spawn_prob is not None:
+    if args.cloud_spawn_prob is not None:
         snow["cloud_spawn_prob"] = args.cloud_spawn_prob
     if args.initial_clouds is not None:
         snow["initial_clouds"] = args.initial_clouds
     if getattr(args, "fixed_spawn_prob", False):
         snow["scale_spawn_with_plows"] = False
+
+    snow["clear_per_pass"] = snow_config_args.get("clear_per_pass", 2)
     # Plow times are given for levels 1..max_snow on the command line; level 0 needs no work.
     if getattr(args, "plow_time_single", None):
         snow["plow_time_single"] = (0, *args.plow_time_single)
@@ -97,14 +98,14 @@ def resolve_environment(args: argparse.Namespace) -> tuple[str, SnowplowConfig]:
 
     config_defaults = SnowplowConfig()
     config = SnowplowConfig(
-        n_plows=args.plows if args.plows is not None else preset.get("n_plows", config_defaults.n_plows),
-        max_steps=args.max_steps if args.max_steps is not None else preset.get("max_steps", config_defaults.max_steps),
-        observation=args.obs if args.obs is not None else preset.get("observation", config_defaults.observation),
-        view_size=args.view if args.view is not None else preset.get("view_size", config_defaults.view_size),
+        n_plows=args.plows if args.plows is not None else env_grid_args.get("n_plows", config_defaults.n_plows),
+        max_steps=args.max_steps if args.max_steps is not None else env_grid_args.get("max_steps", config_defaults.max_steps),
+        observation=args.obs if args.obs is not None else env_grid_args.get("observation", config_defaults.observation),
+        view_size=args.view if args.view is not None else env_grid_args.get("view_size", config_defaults.view_size),
         allow_shared_cells=not getattr(args, "exclusive_cells", False),
         snow=SnowConfig(**snow),
     )
-    map_name = args.map if args.map is not None else preset.get("map", "network_3")
+    map_name = args.map if args.map is not None else env_grid_args.get("map", "network_3")
     return map_name, config
 
 
@@ -162,24 +163,30 @@ def cmd_train(args) -> None:
     )
 
     # Read experiment setup configuration
-    # TODO: FIX CORRECT ENV MAPPINGS
+    # TODO: VERIFY CORRECT ENV MAPPINGS
     map_name, config = resolve_environment(args)
-    preset = EXPERIMENTS.get(args.experiment, {})
+    experiment = get_experiment(args.experiment)
+    ppo_args = experiment["ppo_args"]
 
-    algo = args.algo or preset.get("algo") or ("ppo" if config.n_plows == 1 else "mappo")
-    recurrent = args.recurrent or preset.get("recurrent", False)
+    algo = args.algo or ppo_args.get("algo") or ("ppo" if config.n_plows == 1 else "mappo")
+    recurrent = args.recurrent or experiment.get("recurrent", False)
     reward_mode = args.reward_mode or ("individual" if algo == "ppo" else "team_mean")
-    checkpoint_every = args.checkpoint_every or preset.get("checkpoint_every")
+    checkpoint_every = args.checkpoint_every or ppo_args.get("checkpoint_every")
 
     ppo_config = PPOConfig(
-        n_envs=args.n_envs,
-        rollout_len=args.rollout_len,
-        lr=args.lr,
-        hidden=args.hidden,
-        recurrent=recurrent,
-        reward_mode=reward_mode,
-        reward_scale=args.reward_scale,
-        seed=args.seed,
+        n_envs=args.n_envs or ppo_args["n_envs"],
+        rollout_len=args.rollout_len or ppo_args["rollout_len"],
+        lr=args.lr or ppo_args["lr"],
+        hidden=args.hidden or ppo_args["hidden"],
+        recurrent=recurrent or ppo_args["recurrent"],
+        reward_mode=reward_mode or ppo_args["reward_mode"],
+        reward_scale=args.reward_scale or ppo_args["reward_scale"],
+        seed=args.seed or ppo_args["seed"],
+        clip=ppo_args["clip"],
+        anneal_lr=ppo_args["anneal_lr"],
+        layers=ppo_args["layers"],
+        activation=ppo_args["activation"],
+        device=ppo_args["device"],
     )
     run_dir = create_run_dir(args, map_name, algo)
     print("run_dir:", run_dir)
@@ -200,7 +207,7 @@ def cmd_train(args) -> None:
                 "algo": algo,
                 "snowplow": config_to_dict(config),
                 "ppo": asdict(ppo_config),
-                "steps": args.steps,
+                "steps": args.steps or ppo_args["steps"],
                 "lcr_zeta": args.lcr_zeta,
             },
             indent=1,
@@ -225,7 +232,6 @@ def make_checkpoint_callback(trainer, run_dir: Path, every: int | None):
     step count once per update (rollout_len x n_envs steps), so a checkpoint is written on the
     first update that reaches or passes each multiple of `every`. Returns None when disabled.
     """
-    print("every:", every)
     if not every or every <= 0:
         return None
     checkpoint_dir = run_dir / "checkpoints"
@@ -398,7 +404,7 @@ def main() -> None:
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--hidden", type=int, default=128)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--eval-episodes", type=int, default=50)
+
     p.add_argument(
         "--checkpoint-every",
         type=int,
@@ -406,6 +412,7 @@ def main() -> None:
         metavar="STEPS",
         help="also save the model every STEPS environment steps to <run>/checkpoints/",
     )
+    p.add_argument("--eval-episodes", type=int, default=50)
     p.add_argument("--log-every", type=int, default=10, help="print every N PPO updates")
     p.add_argument("--out", help="run directory (default includes the current date and time)")
     p.set_defaults(func=cmd_train)
